@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
@@ -18,7 +19,13 @@ async def set_commands(bot: Bot) -> None:
         BotCommand(command="reset", description="Сбросить сессию (админ)"),
         BotCommand(command="close", description="Закрыть сессию (админ)"),
     ]
-    await bot.set_my_commands(commands)
+    try:
+        await bot.set_my_commands(commands)
+        logging.info("Команды бота успешно установлены")
+    except TelegramRetryAfter as e:
+        logging.warning(f"Не удалось установить команды из-за flood control. Повтор через {e.retry_after} секунд. Бот продолжит работу.")
+    except Exception as e:
+        logging.error(f"Ошибка при установке команд: {e}. Бот продолжит работу.")
 
 
 async def main() -> None:

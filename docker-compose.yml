@@ -1,0 +1,12 @@
+services:
+  wed-bobry-bot:
+    build: .
+    env_file:
+      - .env
+    environment:
+      TZ: ${TIMEZONE}
+    restart: unless-stopped
+    develop:
+      watch:
+        - action: rebuild
+          path: .

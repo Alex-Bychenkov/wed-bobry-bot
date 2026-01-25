@@ -1,0 +1,102 @@
+#!/bin/bash
+set -e
+
+echo "🚀 Настройка сервера для развертывания бота Бобры..."
+
+# Определение дистрибутива
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+else
+    echo "❌ Не удалось определить операционную систему"
+    exit 1
+fi
+
+# Обновление системы
+echo "📦 Обновление системы..."
+case $OS in
+    ubuntu|debian)
+        apt-get update
+        apt-get upgrade -y
+        apt-get install -y curl git wget ufw fail2ban
+        ;;
+    centos|rhel|fedora)
+        yum update -y
+        yum install -y curl git wget firewalld fail2ban
+        ;;
+    alpine)
+        apk update
+        apk add --no-cache curl git wget ufw fail2ban
+        ;;
+    *)
+        echo "⚠️  Неизвестный дистрибутив, попытка установки базовых пакетов..."
+        ;;
+esac
+
+# Установка Docker
+echo "🐳 Установка Docker..."
+if ! command -v docker &> /dev/null; then
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    sh /tmp/get-docker.sh
+    rm /tmp/get-docker.sh
+    systemctl enable docker
+    systemctl start docker
+    echo "✅ Docker установлен"
+else
+    echo "✅ Docker уже установлен ($(docker --version))"
+fi
+
+# Установка Docker Compose
+echo "🐳 Установка Docker Compose..."
+if ! command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep 'tag_name' | cut -d\" -f4)
+    curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
+    echo "✅ Docker Compose установлен"
+else
+    echo "✅ Docker Compose уже установлен ($(docker-compose --version))"
+fi
+
+# Настройка файрвола
+echo "🔥 Настройка файрвола..."
+if command -v ufw &> /dev/null; then
+    ufw --force enable
+    ufw allow 22/tcp
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw reload
+    echo "✅ UFW настроен"
+elif command -v firewall-cmd &> /dev/null; then
+    systemctl enable firewalld
+    systemctl start firewalld
+    firewall-cmd --permanent --add-service=ssh
+    firewall-cmd --permanent --add-service=http
+    firewall-cmd --permanent --add-service=https
+    firewall-cmd --reload
+    echo "✅ Firewalld настроен"
+else
+    echo "⚠️  Файрвол не найден, пропускаем настройку"
+fi
+
+# Создание директории для проекта
+echo "📁 Создание директории для проекта..."
+mkdir -p /opt/wed-bobry-bot
+mkdir -p /opt/wed-bobry-bot/data
+
+# Настройка прав
+chown -R root:root /opt/wed-bobry-bot
+chmod 755 /opt/wed-bobry-bot
+
+echo ""
+echo "✅ Сервер настроен успешно!"
+echo ""
+echo "Информация о системе:"
+echo "  OS: $(uname -a)"
+echo "  Docker: $(docker --version)"
+echo "  Docker Compose: $(docker-compose --version)"
+echo ""
+echo "Следующие шаги:"
+echo "1. Скопируйте файлы проекта в /opt/wed-bobry-bot"
+echo "2. Создайте файл .env с настройками бота"
+echo "3. Запустите бота с помощью: cd /opt/wed-bobry-bot && docker-compose up -d"

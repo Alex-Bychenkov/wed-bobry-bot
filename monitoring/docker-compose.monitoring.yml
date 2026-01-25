@@ -1,0 +1,198 @@
+version: '3.8'
+
+networks:
+  monitoring:
+    external: true
+    name: monitoring
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+services:
+  # Prometheus - metrics collection and storage
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      # Уменьшен retention с 30d до 7d для экономии места и памяти
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=200MB'
+      - '--web.enable-lifecycle'
+      # Ограничение памяти для TSDB
+      - '--storage.tsdb.max-block-duration=2h'
+      - '--storage.tsdb.min-block-duration=2h'
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+    # Ограничения ресурсов
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+        reservations:
+          memory: 80M
+    mem_limit: 150m
+    memswap_limit: 200m
+
+  # Grafana - visualization dashboards
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: grafana
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://87.247.157.122:3000
+      # Оптимизация памяти Grafana
+      - GF_RENDERING_CONCURRENT_RENDER_LIMIT=2
+      - GF_ALERTING_ENABLED=false
+      - GF_UNIFIED_ALERTING_ENABLED=false
+      - GF_EXPLORE_ENABLED=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
+      - GF_SNAPSHOTS_EXTERNAL_ENABLED=false
+      - GF_LOG_LEVEL=warn
+      # Оптимизация кэша
+      - GF_DATABASE_CACHE_MODE=shared
+    ports:
+      - "3000:3000"
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    # Ограничения ресурсов
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+        reservations:
+          memory: 70M
+    mem_limit: 120m
+    memswap_limit: 160m
+
+  # Node Exporter - server metrics
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      # Отключаем ненужные коллекторы для экономии ресурсов
+      - '--no-collector.arp'
+      - '--no-collector.bcache'
+      - '--no-collector.bonding'
+      - '--no-collector.btrfs'
+      - '--no-collector.conntrack'
+      - '--no-collector.dmi'
+      - '--no-collector.edac'
+      - '--no-collector.fibrechannel'
+      - '--no-collector.hwmon'
+      - '--no-collector.infiniband'
+      - '--no-collector.ipvs'
+      - '--no-collector.mdadm'
+      - '--no-collector.nfs'
+      - '--no-collector.nfsd'
+      - '--no-collector.nvme'
+      - '--no-collector.os'
+      - '--no-collector.powersupplyclass'
+      - '--no-collector.pressure'
+      - '--no-collector.rapl'
+      - '--no-collector.schedstat'
+      - '--no-collector.selinux'
+      - '--no-collector.softnet'
+      - '--no-collector.tapestats'
+      - '--no-collector.thermal_zone'
+      - '--no-collector.timex'
+      - '--no-collector.xfs'
+      - '--no-collector.zfs'
+    ports:
+      - "9100:9100"
+    networks:
+      - monitoring
+    # Ограничения ресурсов
+    deploy:
+      resources:
+        limits:
+          memory: 30M
+        reservations:
+          memory: 15M
+    mem_limit: 30m
+    memswap_limit: 50m
+
+  # Alertmanager - alert routing and notifications
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: alertmanager
+    restart: unless-stopped
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      # Ограничение хранения алертов
+      - '--data.retention=24h'
+    ports:
+      - "9093:9093"
+    networks:
+      - monitoring
+    # Ограничения ресурсов
+    deploy:
+      resources:
+        limits:
+          memory: 30M
+        reservations:
+          memory: 15M
+    mem_limit: 30m
+    memswap_limit: 50m
+
+  # Telegram Alert Bot - sends alerts to Telegram
+  telegram-alert-bot:
+    image: metalmatze/alertmanager-bot:0.4.3
+    container_name: telegram-alert-bot
+    restart: unless-stopped
+    environment:
+      - ALERTMANAGER_URL=http://alertmanager:9093
+      - TELEGRAM_ADMIN=${TELEGRAM_ADMIN_ID}
+      - TELEGRAM_TOKEN=${TELEGRAM_ALERT_BOT_TOKEN}
+      - STORE=bolt
+      - BOLT_PATH=/data/bot.db
+      - LISTEN_ADDR=0.0.0.0:9087
+    volumes:
+      - ./telegram-bot-data:/data
+    ports:
+      - "9087:9087"
+    networks:
+      - monitoring
+    depends_on:
+      - alertmanager
+    # Ограничения ресурсов
+    deploy:
+      resources:
+        limits:
+          memory: 30M
+        reservations:
+          memory: 15M
+    mem_limit: 30m
+    memswap_limit: 50m

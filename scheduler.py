@@ -6,11 +6,13 @@ from aiogram import Bot
 
 from config import CHAT_ID, NOTIFY_TIME, TIMEZONE
 from db import close_session, get_open_session, set_pinned_message_id
-from handlers import build_prompt_keyboard, ensure_list_message, ensure_session
+from handlers import build_prompt_keyboard, ensure_list_message, ensure_session, invalidate_session_cache
 from utils import parse_notify_time
+from metrics import SCHEDULER_JOBS_TOTAL
 
 
 async def send_daily_notification(bot: Bot) -> None:
+    SCHEDULER_JOBS_TOTAL.labels(job="send_notification").inc()
     session = await ensure_session(CHAT_ID)
     if session["is_closed"]:
         return
@@ -31,6 +33,7 @@ async def send_daily_notification(bot: Bot) -> None:
 
 
 async def close_current_session(bot: Bot) -> None:
+    SCHEDULER_JOBS_TOTAL.labels(job="close_session").inc()
     session = await get_open_session(CHAT_ID)
     if not session:
         return
@@ -42,18 +45,22 @@ async def close_current_session(bot: Bot) -> None:
         except Exception:
             pass  # Если нет прав или сообщение уже откреплено — игнорируем
     await close_session(session["id"])
+    # Инвалидируем кэш сессии
+    invalidate_session_cache(CHAT_ID)
     await bot.send_message(chat_id=CHAT_ID, text="Сессия закрыта.")
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     notify_time = parse_notify_time(NOTIFY_TIME)
+    # Уведомления только по средам и субботам в 11:00
     notify_trigger = CronTrigger(
-        day_of_week="sat,sun,mon,tue,wed",
+        day_of_week="wed,sat",
         hour=notify_time.hour,
         minute=notify_time.minute,
     )
     scheduler.add_job(send_daily_notification, notify_trigger, args=[bot])
+    # Закрытие сессии в среду в 23:30
     close_trigger = CronTrigger(day_of_week="wed", hour=23, minute=30)
     scheduler.add_job(close_current_session, close_trigger, args=[bot])
     return scheduler

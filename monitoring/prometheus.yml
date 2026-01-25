@@ -1,0 +1,34 @@
+global:
+  # Увеличен интервал с 15s до 30s для снижения нагрузки
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  # Таймаут для медленных ответов
+  scrape_timeout: 10s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # Prometheus self-monitoring (реже опрашиваем себя)
+  - job_name: 'prometheus'
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Node Exporter - server metrics (60s достаточно для системных метрик)
+  - job_name: 'node'
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Bot metrics (30s для актуальности данных бота)
+  - job_name: 'bot'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['wed-bobry-bot:8000']

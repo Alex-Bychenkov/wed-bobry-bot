@@ -1,5 +1,21 @@
+# Environment files with secrets
 .env
+.env.*
+!.env.example
+monitoring/.env
+monitoring/.env.*
+!monitoring/.env.example
+
+# Python
 .venv
 __pycache__/
-data.db
 *.pyc
+
+# Database
+data.db
+*.db
+data/
+
+# macOS
+._*
+.DS_Store

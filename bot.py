@@ -9,6 +9,7 @@ from aiogram.types import BotCommand
 from config import BOT_TOKEN
 from db import init_db
 from handlers import router
+from metrics import set_bot_info, start_metrics_server
 from scheduler import setup_scheduler
 
 
@@ -30,8 +31,27 @@ async def set_commands(bot: Bot) -> None:
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
+    
+    # Start Prometheus metrics server
+    try:
+        logging.info("Attempting to start metrics server...")
+        start_metrics_server(port=8000)
+        logging.info("Metrics server started on port 8000")
+    except Exception as e:
+        logging.error(f"Failed to start metrics server: {e}", exc_info=True)
+        raise
+    
     await init_db()
     bot = Bot(token=BOT_TOKEN)
+    
+    # Set bot info for metrics
+    bot_info = await bot.get_me()
+    set_bot_info(
+        name=bot_info.full_name,
+        username=bot_info.username or "",
+        bot_id=bot_info.id
+    )
+    
     await set_commands(bot)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)

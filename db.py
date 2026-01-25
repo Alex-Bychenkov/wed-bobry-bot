@@ -1,15 +1,66 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, date
+from typing import Optional
+from contextlib import asynccontextmanager
 
 import aiosqlite
 
 
-DB_PATH = "data.db"
+DB_DIR = "data"
+DB_PATH = os.path.join(DB_DIR, "data.db")
+
+# Connection pool для повышения производительности
+_db_pool: Optional[aiosqlite.Connection] = None
+
+
+async def get_db() -> aiosqlite.Connection:
+    """Получить подключение к БД с оптимизированными настройками для минимального потребления памяти."""
+    global _db_pool
+    if _db_pool is None:
+        _db_pool = await aiosqlite.connect(DB_PATH)
+        _db_pool.row_factory = aiosqlite.Row
+        
+        # === Оптимизации SQLite для минимального потребления памяти ===
+        
+        # WAL режим для лучшей производительности при конкурентном доступе
+        await _db_pool.execute("PRAGMA journal_mode=WAL")
+        
+        # NORMAL синхронизация - баланс между скоростью и надёжностью
+        await _db_pool.execute("PRAGMA synchronous=NORMAL")
+        
+        # Ограничиваем кэш страниц (по умолчанию 2000 страниц = ~8MB)
+        # Устанавливаем 500 страниц = ~2MB
+        await _db_pool.execute("PRAGMA cache_size=-2000")  # -2000 = 2MB
+        
+        # Ограничиваем размер temp_store в памяти
+        await _db_pool.execute("PRAGMA temp_store=MEMORY")
+        
+        # Отключаем mmap для экономии виртуальной памяти
+        await _db_pool.execute("PRAGMA mmap_size=0")
+        
+        # Быстрый checkpoint для WAL
+        await _db_pool.execute("PRAGMA wal_autocheckpoint=100")
+        
+        await _db_pool.commit()
+    return _db_pool
+
+
+@asynccontextmanager
+async def db_connection():
+    """Context manager для работы с БД."""
+    db = await get_db()
+    try:
+        yield db
+    finally:
+        pass  # Не закрываем соединение, используем pool
 
 
 async def init_db() -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    # Создаем директорию для базы данных, если её нет
+    os.makedirs(DB_DIR, exist_ok=True)
+    async with db_connection() as db:
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -19,6 +70,11 @@ async def init_db() -> None:
             )
             """
         )
+        # Индекс для быстрого поиска по user_id
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id)"
+        )
+        
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
@@ -31,11 +87,20 @@ async def init_db() -> None:
             )
             """
         )
+        # Индексы для быстрого поиска сессий
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_chat_id ON sessions(chat_id, is_closed)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(chat_id, target_date)"
+        )
+        
         # Migration: add pinned_message_id if missing
         cursor = await db.execute("PRAGMA table_info(sessions)")
         columns = [row[1] for row in await cursor.fetchall()]
         if "pinned_message_id" not in columns:
             await db.execute("ALTER TABLE sessions ADD COLUMN pinned_message_id INTEGER")
+            
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS responses (
@@ -49,23 +114,45 @@ async def init_db() -> None:
             )
             """
         )
+        # Индекс для быстрого поиска ответов по сессии
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_responses_session ON responses(session_id)"
+        )
+        
         await db.commit()
 
 
+# Простой кэш фамилий в памяти для уменьшения обращений к БД
+# Максимум 100 записей, этого достаточно для небольшого бота
+_last_name_cache: dict[int, str] = {}
+_CACHE_MAX_SIZE = 100
+
+
 async def get_user_last_name(user_id: int) -> str | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
+    # Сначала проверяем кэш
+    if user_id in _last_name_cache:
+        return _last_name_cache[user_id]
+    
+    async with db_connection() as db:
         cursor = await db.execute(
             "SELECT last_name FROM users WHERE user_id = ?",
             (user_id,),
         )
         row = await cursor.fetchone()
         await cursor.close()
-    return row["last_name"] if row else None
+    
+    if row:
+        # Добавляем в кэш
+        if len(_last_name_cache) >= _CACHE_MAX_SIZE:
+            # Удаляем первый элемент (FIFO)
+            _last_name_cache.pop(next(iter(_last_name_cache)))
+        _last_name_cache[user_id] = row["last_name"]
+        return row["last_name"]
+    return None
 
 
 async def upsert_user_last_name(user_id: int, last_name: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_connection() as db:
         await db.execute(
             """
             INSERT INTO users (user_id, last_name, updated_at)
@@ -77,11 +164,15 @@ async def upsert_user_last_name(user_id: int, last_name: str) -> None:
             (user_id, last_name, datetime.utcnow().isoformat()),
         )
         await db.commit()
+    
+    # Обновляем кэш
+    if len(_last_name_cache) >= _CACHE_MAX_SIZE:
+        _last_name_cache.pop(next(iter(_last_name_cache)))
+    _last_name_cache[user_id] = last_name
 
 
 async def get_open_session(chat_id: int) -> aiosqlite.Row | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
+    async with db_connection() as db:
         cursor = await db.execute(
             """
             SELECT * FROM sessions
@@ -97,8 +188,7 @@ async def get_open_session(chat_id: int) -> aiosqlite.Row | None:
 
 
 async def get_session_by_date(chat_id: int, target_date: date) -> aiosqlite.Row | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
+    async with db_connection() as db:
         cursor = await db.execute(
             """
             SELECT * FROM sessions
@@ -114,7 +204,7 @@ async def get_session_by_date(chat_id: int, target_date: date) -> aiosqlite.Row 
 
 
 async def create_session(chat_id: int, target_date: date) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_connection() as db:
         cursor = await db.execute(
             """
             INSERT INTO sessions (chat_id, target_date, is_closed)
@@ -127,7 +217,7 @@ async def create_session(chat_id: int, target_date: date) -> int:
 
 
 async def close_session(session_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_connection() as db:
         await db.execute(
             "UPDATE sessions SET is_closed = 1 WHERE id = ?",
             (session_id,),
@@ -135,8 +225,8 @@ async def close_session(session_id: int) -> None:
         await db.commit()
 
 
-async def set_list_message_id(session_id: int, message_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+async def set_list_message_id(session_id: int, message_id: int | None) -> None:
+    async with db_connection() as db:
         await db.execute(
             "UPDATE sessions SET list_message_id = ? WHERE id = ?",
             (message_id, session_id),
@@ -145,7 +235,7 @@ async def set_list_message_id(session_id: int, message_id: int) -> None:
 
 
 async def set_pinned_message_id(session_id: int, message_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_connection() as db:
         await db.execute(
             "UPDATE sessions SET pinned_message_id = ? WHERE id = ?",
             (message_id, session_id),
@@ -160,7 +250,7 @@ async def upsert_response(
     last_name: str,
     status: str,
 ) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_connection() as db:
         await db.execute(
             """
             INSERT INTO responses (session_id, chat_id, user_id, last_name, status, updated_at)
@@ -176,8 +266,7 @@ async def upsert_response(
 
 
 async def fetch_responses(session_id: int) -> list[aiosqlite.Row]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
+    async with db_connection() as db:
         cursor = await db.execute(
             """
             SELECT user_id, last_name, status, updated_at

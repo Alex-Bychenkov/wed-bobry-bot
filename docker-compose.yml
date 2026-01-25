@@ -1,12 +1,31 @@
+version: '3.3'
+
+networks:
+  monitoring:
+    external: true
+    name: monitoring
+
 services:
   wed-bobry-bot:
     build: .
+    container_name: wed-bobry-bot
     env_file:
       - .env
     environment:
-      TZ: ${TIMEZONE}
+      - TZ=${TIMEZONE:-Europe/Moscow}
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
     restart: unless-stopped
-    develop:
-      watch:
-        - action: rebuild
-          path: .
+    networks:
+      - monitoring
+    # Ограничения ресурсов для экономии памяти
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+        reservations:
+          memory: 60M
+    mem_limit: 120m
+    memswap_limit: 150m

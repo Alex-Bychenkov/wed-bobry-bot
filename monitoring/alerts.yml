@@ -1,0 +1,74 @@
+groups:
+  - name: server_alerts
+    rules:
+      # Server down
+      - alert: ServerDown
+        expr: up{job="node"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Server is down"
+          description: "Node exporter is not responding for more than 1 minute."
+
+      # High CPU usage
+      - alert: HighCpuUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for more than 5 minutes. Current value: {{ $value | printf \"%.1f\" }}%"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 90%. Current value: {{ $value | printf \"%.1f\" }}%"
+
+      # Disk space low
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space is running low"
+          description: "Disk usage is above 85% on {{ $labels.mountpoint }}. Current value: {{ $value | printf \"%.1f\" }}%"
+
+  - name: bot_alerts
+    rules:
+      # Bot down
+      - alert: BotDown
+        expr: up{job="bot"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bot is not responding"
+          description: "Bot metrics endpoint is not available for more than 2 minutes."
+
+      # High error rate
+      - alert: BotHighErrorRate
+        expr: rate(bot_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bot has high error rate"
+          description: "Bot is experiencing more than 0.1 errors per second. Current rate: {{ $value | printf \"%.3f\" }}/s"
+
+      # Slow response time
+      - alert: BotSlowResponses
+        expr: histogram_quantile(0.95, rate(bot_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bot responses are slow"
+          description: "95th percentile of bot response time is above 2 seconds. Current value: {{ $value | printf \"%.2f\" }}s"

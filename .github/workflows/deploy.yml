@@ -1,0 +1,43 @@
+name: Deploy to Server
+
+# Запускается вручную из GitHub UI
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Подтвердите деплой (напишите "deploy")'
+        required: true
+        default: ''
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'deploy'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASS }}
+          script: |
+            cd /opt/wed-bobry-bot
+            
+            # Получаем изменения из Git
+            git fetch origin
+            git reset --hard origin/main
+            
+            # Перезапускаем контейнеры
+            docker-compose down
+            docker-compose up -d --build
+            
+            # Показываем статус
+            echo "✅ Деплой завершён"
+            docker-compose ps
+
+      - name: Deployment complete
+        run: echo "✅ Бот успешно обновлён на сервере!"

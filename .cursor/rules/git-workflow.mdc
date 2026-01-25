@@ -1,0 +1,36 @@
+---
+description: Автоматический Git workflow для деплоя
+globs: ["**/*.py", "**/*.yml", "**/*.yaml", "**/*.sh", "**/*.json"]
+alwaysApply: true
+---
+
+# Git Workflow
+
+После внесения изменений в код, ВСЕГДА выполняй следующие действия:
+
+## 1. Создай новую ветку и запушь изменения
+
+```bash
+# Генерируем имя ветки
+BRANCH_NAME="update/$(date +%Y-%m-%d-%H%M%S)"
+
+# Создаём ветку, коммитим и пушим
+git checkout -b "$BRANCH_NAME"
+git add .
+git commit -m "Описание изменений"
+git push -u origin "$BRANCH_NAME"
+
+# Возвращаемся на main
+git checkout main
+```
+
+## 2. Сообщи пользователю
+
+После успешного пуша, выведи:
+- Ссылку на создание PR: `https://github.com/Alex-Bychenkov/wed-bobry-bot/compare/main...<branch_name>`
+- Напоминание: "После мержа PR запустите деплой: Actions → Deploy to Server → Run workflow"
+
+## Важно
+- Всегда используй понятное описание коммита на русском языке
+- Не пушь напрямую в main
+- Не запускай деплой автоматически - только после согласования пользователя

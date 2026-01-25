@@ -21,9 +21,9 @@ jobs:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USER }}
-          password: ${{ secrets.PASS }}
+          host: ${{ secrets.SERVER }}
+          username: ${{ secrets.LOGIN }}
+          password: ${{ secrets.PASSWORD }}
           script: |
             cd /opt/wed-bobry-bot
             

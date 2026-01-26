@@ -17,6 +17,7 @@ from metrics import (
     COMMANDS_TOTAL,
     ERRORS_TOTAL,
     GUESTS_ADDED_TOTAL,
+    GUESTS_DELETED_TOTAL,
     PLAYERS_CURRENT,
     REQUEST_DURATION,
     RESPONSES_TOTAL,
@@ -35,6 +36,7 @@ from config import ADMIN_IDS, CHAT_ID, TIMEZONE
 from db import (
     close_session,
     create_session,
+    delete_response_by_last_name,
     fetch_responses,
     get_open_session,
     get_session_by_date,
@@ -80,6 +82,7 @@ async def update_player_metrics(session_id: int) -> None:
 class LastNameState(StatesGroup):
     waiting_last_name = State()
     waiting_guest_last_name = State()  # Для добавления гостя
+    waiting_delete_last_name = State()  # Для удаления участника
 
 
 def build_prompt_keyboard() -> InlineKeyboardMarkup:
@@ -89,6 +92,7 @@ def build_prompt_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="Пока не определился", callback_data="status:MAYBE"),
         InlineKeyboardButton(text="Не смогу пойти, занят", callback_data="status:NO"),
         InlineKeyboardButton(text="➕ Добавить участника не из группы", callback_data="add_guest"),
+        InlineKeyboardButton(text="➖ Удалить участника не из группы", callback_data="delete_guest"),
     )
     builder.adjust(1)
     return builder.as_markup()
@@ -510,3 +514,80 @@ async def guest_last_name_handler(message: Message, state: FSMContext, bot: Bot)
     # Отправляем подтверждение и удаляем его через 3 секунды
     confirm_msg = await message.answer(f"✅ Участник '{guest_last_name}' добавлен в список.")
     asyncio.create_task(delete_message_later(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=3))
+
+
+@router.callback_query(F.data == "delete_guest")
+async def delete_guest_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Обработчик кнопки 'Удалить участника не из группы'."""
+    start_time = time.time()
+    CALLBACKS_TOTAL.labels(action="delete_guest").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    session = await ensure_session(CHAT_ID)
+    if session["is_closed"]:
+        await callback.answer("Сессия закрыта.")
+        return
+    
+    # Проверяем, является ли пользователь администратором
+    if not await is_admin(bot, callback.message.chat.id, callback.from_user.id):
+        await callback.answer("Только администраторы могут удалять участников.", show_alert=True)
+        return
+    
+    await state.set_state(LastNameState.waiting_delete_last_name)
+    prompt_msg = await callback.message.answer("Введите фамилию участника, которого нужно удалить из списка:")
+    # Удаляем сообщение через 15 секунд
+    asyncio.create_task(delete_message_later(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15))
+    await callback.answer()
+    
+    REQUEST_DURATION.labels(handler="delete_guest").observe(time.time() - start_time)
+
+
+@router.message(LastNameState.waiting_delete_last_name)
+async def delete_last_name_handler(message: Message, state: FSMContext, bot: Bot) -> None:
+    """Обработчик ввода фамилии для удаления участника."""
+    if message.chat.id != CHAT_ID:
+        return
+    if not message.text:
+        error_msg = await message.answer("Пожалуйста, отправь текстовое сообщение с фамилией.")
+        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=10))
+        return
+    
+    last_name_to_delete = message.text.strip()
+    if not last_name_to_delete:
+        error_msg = await message.answer("Фамилия не может быть пустой. Попробуй еще раз.")
+        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=10))
+        return
+    
+    session = await ensure_session(CHAT_ID)
+    if session["is_closed"]:
+        error_msg = await message.answer("Сессия закрыта.")
+        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=10))
+        await state.clear()
+        return
+    
+    # Удаляем участника по фамилии
+    deleted = await delete_response_by_last_name(session["id"], last_name_to_delete)
+    
+    await state.clear()
+    
+    # Удаляем сообщение пользователя с фамилией
+    asyncio.create_task(delete_message_later(bot, message.chat.id, message.message_id, delay=3))
+    
+    if deleted:
+        # Обновляем метрику удалённых гостей
+        GUESTS_DELETED_TOTAL.inc()
+        
+        # Обновляем список
+        await update_summary(bot, session)
+        
+        # Update player counts
+        await update_player_metrics(session["id"])
+        
+        confirm_msg = await message.answer(f"✅ Участник '{last_name_to_delete}' удалён из списка.")
+    else:
+        confirm_msg = await message.answer(f"❌ Участник с фамилией '{last_name_to_delete}' не найден в списке.")
+    
+    asyncio.create_task(delete_message_later(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=5))

@@ -279,3 +279,35 @@ async def fetch_responses(session_id: int) -> list[aiosqlite.Row]:
         rows = await cursor.fetchall()
         await cursor.close()
     return list(rows)
+
+
+async def delete_response_by_last_name(session_id: int, last_name: str) -> bool:
+    """Удаляет участника из сессии по фамилии.
+    
+    Возвращает True если участник найден и удалён, False если не найден.
+    """
+    async with db_connection() as db:
+        # Проверяем, есть ли такой участник
+        cursor = await db.execute(
+            """
+            SELECT user_id FROM responses
+            WHERE session_id = ? AND LOWER(last_name) = LOWER(?)
+            """,
+            (session_id, last_name),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        
+        if not row:
+            return False
+        
+        # Удаляем участника
+        await db.execute(
+            """
+            DELETE FROM responses
+            WHERE session_id = ? AND LOWER(last_name) = LOWER(?)
+            """,
+            (session_id, last_name),
+        )
+        await db.commit()
+        return True

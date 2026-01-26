@@ -230,10 +230,26 @@ async def cmd_start(message: Message, bot: Bot) -> None:
         except Exception:
             pass
     
-    # Удаляем старое сообщение со списком (если это групповой чат)
+    # Удаляем старые сообщения (если это групповой чат)
     if chat_id == CHAT_ID:
         fresh_session = await get_open_session(CHAT_ID)
         if fresh_session:
+            # Удаляем закреплённое сообщение (с кнопками от планировщика)
+            pinned_message_id = fresh_session["pinned_message_id"] if "pinned_message_id" in fresh_session.keys() else None
+            if pinned_message_id:
+                try:
+                    await bot.unpin_chat_message(chat_id=CHAT_ID, message_id=pinned_message_id)
+                except Exception:
+                    pass
+                try:
+                    await bot.delete_message(CHAT_ID, pinned_message_id)
+                except Exception:
+                    pass
+                # Сбрасываем ID
+                from db import set_pinned_message_id
+                await set_pinned_message_id(fresh_session["id"], None)
+            
+            # Удаляем сообщение со списком
             list_message_id = fresh_session["list_message_id"] if "list_message_id" in fresh_session.keys() else None
             if list_message_id:
                 try:
@@ -272,8 +288,23 @@ async def cmd_status(message: Message, bot: Bot) -> None:
     fresh_session = await get_open_session(CHAT_ID)
     if fresh_session:
         list_message_id = fresh_session["list_message_id"] if "list_message_id" in fresh_session.keys() else None
+        pinned_message_id = fresh_session["pinned_message_id"] if "pinned_message_id" in fresh_session.keys() else None
     else:
         list_message_id = session.get("list_message_id")
+        pinned_message_id = session.get("pinned_message_id")
+    
+    # Удаляем закреплённое сообщение (с кнопками)
+    if pinned_message_id:
+        try:
+            await bot.unpin_chat_message(chat_id=CHAT_ID, message_id=pinned_message_id)
+        except Exception:
+            pass
+        try:
+            await bot.delete_message(CHAT_ID, pinned_message_id)
+        except Exception:
+            pass
+        from db import set_pinned_message_id
+        await set_pinned_message_id(session["id"], None)
     
     # Удаляем старое сообщение со списком
     if list_message_id:

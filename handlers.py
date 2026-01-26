@@ -17,6 +17,7 @@ from metrics import (
     COMMANDS_TOTAL,
     ERRORS_TOTAL,
     GUESTS_ADDED_TOTAL,
+    GUESTS_DELETED_TOTAL,
     PLAYERS_CURRENT,
     REQUEST_DURATION,
     RESPONSES_TOTAL,
@@ -576,6 +577,9 @@ async def delete_last_name_handler(message: Message, state: FSMContext, bot: Bot
     asyncio.create_task(delete_message_later(bot, message.chat.id, message.message_id, delay=3))
     
     if deleted:
+        # Обновляем метрику удалённых гостей
+        GUESTS_DELETED_TOTAL.inc()
+        
         # Обновляем список
         await update_summary(bot, session)
         

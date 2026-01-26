@@ -70,6 +70,12 @@ GUESTS_ADDED_TOTAL = Counter(
     "Total number of guest participants added"
 )
 
+# Guests deleted counter
+GUESTS_DELETED_TOTAL = Counter(
+    "bot_guests_deleted_total",
+    "Total number of guest participants deleted"
+)
+
 
 class _QuietHandler(WSGIRequestHandler):
     """WSGI handler без логирования запросов для уменьшения I/O."""

@@ -225,7 +225,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "rate(bot_request_duration_seconds_sum[5m]) / rate(bot_request_duration_seconds_count[5m])",
+          "expr": "sum(rate(bot_request_duration_seconds_sum[5m])) / sum(rate(bot_request_duration_seconds_count[5m])) > 0 or vector(0)",
           "refId": "A"
         }
       ]
@@ -584,12 +584,12 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(bot_request_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, sum by (le, handler) (rate(bot_request_duration_seconds_bucket[5m])))",
           "legendFormat": "p95 {{handler}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.50, rate(bot_request_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, sum by (le, handler) (rate(bot_request_duration_seconds_bucket[5m])))",
           "legendFormat": "p50 {{handler}}",
           "refId": "B"
         }

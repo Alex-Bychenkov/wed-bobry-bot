@@ -31,8 +31,13 @@ jobs:
             git fetch origin
             git reset --hard origin/main
             
-            # Перезапускаем контейнеры
-            docker-compose down
+            # Останавливаем и удаляем контейнеры (включая "осиротевшие")
+            docker-compose down --remove-orphans
+            
+            # Принудительно удаляем контейнер, если остался
+            docker rm -f wed-bobry-bot 2>/dev/null || true
+            
+            # Запускаем новый контейнер
             docker-compose up -d --build
             
             # Показываем статус

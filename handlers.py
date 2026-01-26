@@ -222,43 +222,13 @@ async def cmd_start(message: Message, bot: Bot) -> None:
     # Удаляем сообщение с командой через 3 секунды
     asyncio.create_task(delete_message_later(bot, chat_id, message.message_id, delay=3))
     
-    # Удаляем старое сообщение с кнопками, если есть
+    # Удаляем ТОЛЬКО предыдущее сообщение от /start (с кнопками)
     old_message_id = _last_start_message.get(chat_id)
     if old_message_id:
         try:
             await bot.delete_message(chat_id, old_message_id)
         except Exception:
             pass
-    
-    # Удаляем старые сообщения (если это групповой чат)
-    if chat_id == CHAT_ID:
-        fresh_session = await get_open_session(CHAT_ID)
-        if fresh_session:
-            # Удаляем закреплённое сообщение (с кнопками от планировщика)
-            pinned_message_id = fresh_session["pinned_message_id"] if "pinned_message_id" in fresh_session.keys() else None
-            if pinned_message_id:
-                try:
-                    await bot.unpin_chat_message(chat_id=CHAT_ID, message_id=pinned_message_id)
-                except Exception:
-                    pass
-                try:
-                    await bot.delete_message(CHAT_ID, pinned_message_id)
-                except Exception:
-                    pass
-                # Сбрасываем ID
-                from db import set_pinned_message_id
-                await set_pinned_message_id(fresh_session["id"], None)
-            
-            # Удаляем сообщение со списком
-            list_message_id = fresh_session["list_message_id"] if "list_message_id" in fresh_session.keys() else None
-            if list_message_id:
-                try:
-                    await bot.delete_message(CHAT_ID, list_message_id)
-                except Exception:
-                    pass
-                # Сбрасываем ID
-                await set_list_message_id(fresh_session["id"], None)
-                invalidate_session_cache(CHAT_ID)
     
     text = (
         "Привет! Нажми кнопку под сообщением бота и выбери статус.\n"
@@ -288,25 +258,10 @@ async def cmd_status(message: Message, bot: Bot) -> None:
     fresh_session = await get_open_session(CHAT_ID)
     if fresh_session:
         list_message_id = fresh_session["list_message_id"] if "list_message_id" in fresh_session.keys() else None
-        pinned_message_id = fresh_session["pinned_message_id"] if "pinned_message_id" in fresh_session.keys() else None
     else:
         list_message_id = session.get("list_message_id")
-        pinned_message_id = session.get("pinned_message_id")
     
-    # Удаляем закреплённое сообщение (с кнопками)
-    if pinned_message_id:
-        try:
-            await bot.unpin_chat_message(chat_id=CHAT_ID, message_id=pinned_message_id)
-        except Exception:
-            pass
-        try:
-            await bot.delete_message(CHAT_ID, pinned_message_id)
-        except Exception:
-            pass
-        from db import set_pinned_message_id
-        await set_pinned_message_id(session["id"], None)
-    
-    # Удаляем старое сообщение со списком
+    # Удаляем ТОЛЬКО предыдущее сообщение со списком (от /status)
     if list_message_id:
         try:
             await bot.delete_message(CHAT_ID, list_message_id)

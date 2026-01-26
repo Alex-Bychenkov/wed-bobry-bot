@@ -1,3 +1,4 @@
+"""Main bot entry point."""
 import asyncio
 import logging
 
@@ -14,6 +15,7 @@ from scheduler import setup_scheduler
 
 
 async def set_commands(bot: Bot) -> None:
+    """Set bot commands visible in Telegram UI."""
     commands = [
         BotCommand(command="start", description="Начать / показать кнопки"),
         BotCommand(command="status", description="Текущий список"),
@@ -22,26 +24,35 @@ async def set_commands(bot: Bot) -> None:
     ]
     try:
         await bot.set_my_commands(commands)
-        logging.info("Команды бота успешно установлены")
+        logging.info("Bot commands set successfully")
     except TelegramRetryAfter as e:
-        logging.warning(f"Не удалось установить команды из-за flood control. Повтор через {e.retry_after} секунд. Бот продолжит работу.")
+        logging.warning(
+            f"Could not set commands due to flood control. Retry after {e.retry_after}s. Bot will continue."
+        )
     except Exception as e:
-        logging.error(f"Ошибка при установке команд: {e}. Бот продолжит работу.")
+        logging.error(f"Error setting commands: {e}. Bot will continue.")
 
 
 async def main() -> None:
-    logging.basicConfig(level=logging.INFO)
+    """Main entry point."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     
     # Start Prometheus metrics server
     try:
-        logging.info("Attempting to start metrics server...")
+        logging.info("Starting metrics server...")
         start_metrics_server(port=8000)
         logging.info("Metrics server started on port 8000")
     except Exception as e:
         logging.error(f"Failed to start metrics server: {e}", exc_info=True)
         raise
     
+    # Initialize database
     await init_db()
+    
+    # Create bot instance
     bot = Bot(token=BOT_TOKEN)
     
     # Set bot info for metrics
@@ -52,11 +63,18 @@ async def main() -> None:
         bot_id=bot_info.id
     )
     
+    # Set commands
     await set_commands(bot)
+    
+    # Create dispatcher
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+    
+    # Setup scheduler
     scheduler = setup_scheduler(bot)
     scheduler.start()
+    
+    logging.info("Bot starting polling...")
     await dp.start_polling(bot)
 
 

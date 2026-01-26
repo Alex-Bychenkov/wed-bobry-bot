@@ -40,9 +40,17 @@ jobs:
             # Запускаем новый контейнер
             docker-compose up -d --build
             
+            # Перезапускаем мониторинг (Grafana, Prometheus) для применения изменений
+            if [ -f monitoring/docker-compose.monitoring.yml ]; then
+              echo "🔄 Перезапуск мониторинга..."
+              docker-compose -f monitoring/docker-compose.monitoring.yml restart grafana prometheus
+              echo "✅ Мониторинг перезапущен"
+            fi
+            
             # Показываем статус
             echo "✅ Деплой завершён"
             docker-compose ps
+            docker-compose -f monitoring/docker-compose.monitoring.yml ps 2>/dev/null || true
 
       - name: Deployment complete
         run: echo "✅ Бот успешно обновлён на сервере!"

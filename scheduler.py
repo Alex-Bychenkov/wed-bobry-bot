@@ -1,3 +1,4 @@
+"""Scheduler for periodic tasks (notifications, session closing)."""
 from __future__ import annotations
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -5,86 +6,86 @@ from apscheduler.triggers.cron import CronTrigger
 from aiogram import Bot
 
 from config import CHAT_ID, NOTIFY_TIME, TIMEZONE
-from db import close_session, get_open_session, set_pinned_message_id, set_list_message_id
-from handlers import build_prompt_keyboard, ensure_list_message, ensure_session, invalidate_session_cache
-from utils import parse_notify_time
+from handlers.keyboard import build_prompt_keyboard
 from metrics import SCHEDULER_JOBS_TOTAL
+from services.message_service import MessageService
+from services.session_service import SessionService
+from utils import parse_notify_time
 
 
 async def send_daily_notification(bot: Bot) -> None:
+    """Send daily notification to the chat."""
     SCHEDULER_JOBS_TOTAL.labels(job="send_notification").inc()
-    session = await ensure_session(CHAT_ID)
-    if session["is_closed"]:
+    
+    session = await SessionService.get_or_create_session(CHAT_ID)
+    if session.is_closed:
         return
     
-    # Удаляем предыдущее закреплённое сообщение (с кнопками), если есть
-    old_pinned_id = session.get("pinned_message_id")
-    if old_pinned_id:
-        try:
-            await bot.unpin_chat_message(chat_id=CHAT_ID, message_id=old_pinned_id)
-        except Exception:
-            pass
-        try:
-            await bot.delete_message(chat_id=CHAT_ID, message_id=old_pinned_id)
-        except Exception:
-            pass
+    # Delete previous pinned message (with buttons) if exists
+    if session.pinned_message_id:
+        await MessageService.unpin_message_safe(bot, CHAT_ID, session.pinned_message_id)
+        await MessageService.delete_message_safe(bot, CHAT_ID, session.pinned_message_id)
     
-    # Удаляем предыдущее сообщение со списком, если есть
-    old_list_id = session.get("list_message_id")
-    if old_list_id:
-        try:
-            await bot.delete_message(chat_id=CHAT_ID, message_id=old_list_id)
-        except Exception:
-            pass
-        await set_list_message_id(session["id"], None)
-        invalidate_session_cache(CHAT_ID)
+    # Delete previous list message if exists
+    if session.list_message_id:
+        await MessageService.delete_message_safe(bot, CHAT_ID, session.list_message_id)
+        await SessionService.update_list_message_id(session.id, None)
+        SessionService.invalidate_cache(CHAT_ID)
     
-    # Отправляем новое сообщение с кнопками
+    # Send new message with buttons
     message = await bot.send_message(
         chat_id=CHAT_ID,
-        text=(
-            "Если планируешь посетить игру в среду на «Бобрах», нажми на кнопку"
-        ),
+        text="Если планируешь посетить игру в среду на «Бобрах», нажми на кнопку",
         reply_markup=build_prompt_keyboard(),
     )
-    # Закрепляем сообщение
+    
+    # Pin message
     try:
-        await bot.pin_chat_message(chat_id=CHAT_ID, message_id=message.message_id, disable_notification=True)
-        await set_pinned_message_id(session["id"], message.message_id)
+        await bot.pin_chat_message(
+            chat_id=CHAT_ID,
+            message_id=message.message_id,
+            disable_notification=True
+        )
+        await SessionService.update_pinned_message_id(session.id, message.message_id)
     except Exception:
-        pass  # Если нет прав на закрепление — игнорируем
-    await ensure_list_message(bot, session)
+        pass  # Ignore if no permissions to pin
+    
+    await MessageService.ensure_list_message(bot, session)
 
 
 async def close_current_session(bot: Bot) -> None:
+    """Close the current session."""
     SCHEDULER_JOBS_TOTAL.labels(job="close_session").inc()
-    session = await get_open_session(CHAT_ID)
+    
+    session = await SessionService.get_open_session(CHAT_ID)
     if not session:
         return
-    # Открепляем сообщение перед закрытием
-    pinned_id = session["pinned_message_id"] if "pinned_message_id" in session else None
-    if pinned_id:
-        try:
-            await bot.unpin_chat_message(chat_id=CHAT_ID, message_id=pinned_id)
-        except Exception:
-            pass  # Если нет прав или сообщение уже откреплено — игнорируем
-    await close_session(session["id"])
-    # Инвалидируем кэш сессии
-    invalidate_session_cache(CHAT_ID)
+    
+    # Unpin message before closing
+    if session.pinned_message_id:
+        await MessageService.unpin_message_safe(bot, CHAT_ID, session.pinned_message_id)
+    
+    await SessionService.close_session(session.id)
+    SessionService.invalidate_cache(CHAT_ID)
+    
     await bot.send_message(chat_id=CHAT_ID, text="Сессия закрыта.")
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
+    """Set up and return the scheduler with all jobs."""
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     notify_time = parse_notify_time(NOTIFY_TIME)
-    # Уведомления только по средам и субботам в 11:00
+    
+    # Notifications on Wednesdays and Saturdays
     notify_trigger = CronTrigger(
         day_of_week="wed,sat",
         hour=notify_time.hour,
         minute=notify_time.minute,
     )
     scheduler.add_job(send_daily_notification, notify_trigger, args=[bot])
-    # Закрытие сессии в среду в 23:30
+    
+    # Close session on Wednesday at 23:30
     close_trigger = CronTrigger(day_of_week="wed", hour=23, minute=30)
     scheduler.add_job(close_current_session, close_trigger, args=[bot])
+    
     return scheduler

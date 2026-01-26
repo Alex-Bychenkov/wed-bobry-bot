@@ -5,7 +5,7 @@ from apscheduler.triggers.cron import CronTrigger
 from aiogram import Bot
 
 from config import CHAT_ID, NOTIFY_TIME, TIMEZONE
-from db import close_session, get_open_session, set_pinned_message_id
+from db import close_session, get_open_session, set_pinned_message_id, set_list_message_id
 from handlers import build_prompt_keyboard, ensure_list_message, ensure_session, invalidate_session_cache
 from utils import parse_notify_time
 from metrics import SCHEDULER_JOBS_TOTAL
@@ -16,6 +16,30 @@ async def send_daily_notification(bot: Bot) -> None:
     session = await ensure_session(CHAT_ID)
     if session["is_closed"]:
         return
+    
+    # Удаляем предыдущее закреплённое сообщение (с кнопками), если есть
+    old_pinned_id = session.get("pinned_message_id")
+    if old_pinned_id:
+        try:
+            await bot.unpin_chat_message(chat_id=CHAT_ID, message_id=old_pinned_id)
+        except Exception:
+            pass
+        try:
+            await bot.delete_message(chat_id=CHAT_ID, message_id=old_pinned_id)
+        except Exception:
+            pass
+    
+    # Удаляем предыдущее сообщение со списком, если есть
+    old_list_id = session.get("list_message_id")
+    if old_list_id:
+        try:
+            await bot.delete_message(chat_id=CHAT_ID, message_id=old_list_id)
+        except Exception:
+            pass
+        await set_list_message_id(session["id"], None)
+        invalidate_session_cache(CHAT_ID)
+    
+    # Отправляем новое сообщение с кнопками
     message = await bot.send_message(
         chat_id=CHAT_ID,
         text=(

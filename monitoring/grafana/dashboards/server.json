@@ -158,7 +158,7 @@
               {"color": "green", "value": null}
             ]
           },
-          "unit": "s"
+          "unit": "dtdhms"
         },
         "overrides": []
       },
@@ -178,10 +178,30 @@
       },
       "title": "Uptime",
       "type": "stat",
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "reduceRow",
+            "reduce": {
+              "reducer": "last"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Value": "Uptime"
+            }
+          }
+        }
+      ],
       "targets": [
         {
           "expr": "node_time_seconds - node_boot_time_seconds",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ]
     },

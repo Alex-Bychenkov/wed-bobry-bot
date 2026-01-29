@@ -154,3 +154,43 @@ async def change_team_callback(callback: CallbackQuery, state: FSMContext, bot: 
     prompt_msg = await callback.message.answer("Введите фамилию участника, которому нужно изменить команду:")
     MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
     await callback.answer()
+
+
+@router.callback_query(F.data == "goalie")
+@track_duration("goalie")
+async def goalie_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Handle 'I am goalie' button press."""
+    CALLBACKS_TOTAL.labels(action="goalie").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    session = await SessionService.get_or_create_session(CHAT_ID)
+    if session.is_closed:
+        await callback.answer("Сессия закрыта.")
+        return
+    
+    user_id = callback.from_user.id
+    user_info = await get_user_info(user_id)
+    
+    # Если пользователь уже зарегистрирован с фамилией и командой
+    if user_info and user_info.get("last_name") and user_info.get("team"):
+        last_name = user_info["last_name"]
+        team = user_info["team"]
+        
+        # Сохраняем как вратаря и показываем выбор статуса
+        await state.set_state(LastNameState.waiting_goalie_status)
+        await state.update_data(last_name=last_name, team=team, is_goalie=True)
+        
+        from handlers.keyboard import build_goalie_status_keyboard
+        prompt_msg = await callback.message.answer("Выбери свой статус:", reply_markup=build_goalie_status_keyboard())
+        MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
+        await callback.answer()
+        return
+    
+    # Иначе запрашиваем фамилию
+    await state.set_state(LastNameState.waiting_goalie_last_name)
+    prompt_msg = await callback.message.answer("Пожалуйста, отправь свою фамилию.")
+    MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
+    await callback.answer()

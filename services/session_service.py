@@ -120,10 +120,11 @@ class SessionService:
         user_id: int,
         last_name: str,
         status: ResponseStatus,
-        team: str | None = None
+        team: str | None = None,
+        is_goalie: bool = False
     ) -> None:
         """Add or update player response."""
-        await upsert_response(session_id, chat_id, user_id, last_name, status.value, team)
+        await upsert_response(session_id, chat_id, user_id, last_name, status.value, team, is_goalie)
     
     @classmethod
     async def delete_response(cls, session_id: int, last_name: str) -> bool:
@@ -151,7 +152,8 @@ class SessionService:
             player = PlayerInfo(
                 last_name=resp.last_name,
                 team=resp.team,
-                status=resp.status.value
+                status=resp.status.value,
+                is_goalie=resp.is_goalie
             )
             if resp.status == ResponseStatus.YES:
                 summary.yes.append(player)
@@ -203,6 +205,6 @@ class UserService:
         await upsert_user_last_name(user_id, last_name)
     
     @classmethod
-    async def save_user_info(cls, user_id: int, last_name: str, team: str) -> None:
-        """Save user's info (last_name and team)."""
-        await upsert_user_info(user_id, last_name, team)
+    async def save_user_info(cls, user_id: int, last_name: str, team: str, is_goalie: bool = False) -> None:
+        """Save user's info (last_name, team, is_goalie)."""
+        await upsert_user_info(user_id, last_name, team, is_goalie)

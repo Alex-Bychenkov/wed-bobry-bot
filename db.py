@@ -67,6 +67,7 @@ async def init_db() -> None:
                 user_id INTEGER PRIMARY KEY,
                 last_name TEXT NOT NULL,
                 team TEXT,
+                is_goalie INTEGER DEFAULT 0,
                 updated_at TEXT NOT NULL
             )
             """
@@ -113,6 +114,18 @@ async def init_db() -> None:
         response_columns = [row[1] for row in await cursor.fetchall()]
         if "team" not in response_columns:
             await db.execute("ALTER TABLE responses ADD COLUMN team TEXT")
+        
+        # Migration: add is_goalie field to users table
+        cursor = await db.execute("PRAGMA table_info(users)")
+        user_columns2 = [row[1] for row in await cursor.fetchall()]
+        if "is_goalie" not in user_columns2:
+            await db.execute("ALTER TABLE users ADD COLUMN is_goalie INTEGER DEFAULT 0")
+        
+        # Migration: add is_goalie field to responses table
+        cursor = await db.execute("PRAGMA table_info(responses)")
+        response_columns2 = [row[1] for row in await cursor.fetchall()]
+        if "is_goalie" not in response_columns2:
+            await db.execute("ALTER TABLE responses ADD COLUMN is_goalie INTEGER DEFAULT 0")
             
         await db.execute(
             """
@@ -123,6 +136,7 @@ async def init_db() -> None:
                 last_name TEXT NOT NULL,
                 status TEXT NOT NULL,
                 team TEXT,
+                is_goalie INTEGER DEFAULT 0,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (session_id, user_id)
             )
@@ -143,14 +157,14 @@ _CACHE_MAX_SIZE = 100
 
 
 async def get_user_info(user_id: int) -> dict | None:
-    """Получить информацию о пользователе (фамилия и команда)."""
+    """Получить информацию о пользователе (фамилия, команда, вратарь)."""
     # Сначала проверяем кэш
     if user_id in _user_cache:
         return _user_cache[user_id]
     
     async with db_connection() as db:
         cursor = await db.execute(
-            "SELECT last_name, team FROM users WHERE user_id = ?",
+            "SELECT last_name, team, is_goalie FROM users WHERE user_id = ?",
             (user_id,),
         )
         row = await cursor.fetchone()
@@ -161,7 +175,11 @@ async def get_user_info(user_id: int) -> dict | None:
         if len(_user_cache) >= _CACHE_MAX_SIZE:
             # Удаляем первый элемент (FIFO)
             _user_cache.pop(next(iter(_user_cache)))
-        user_info = {"last_name": row["last_name"], "team": row["team"]}
+        user_info = {
+            "last_name": row["last_name"],
+            "team": row["team"],
+            "is_goalie": bool(row["is_goalie"]) if row["is_goalie"] is not None else False
+        }
         _user_cache[user_id] = user_info
         return user_info
     return None
@@ -173,26 +191,27 @@ async def get_user_last_name(user_id: int) -> str | None:
     return info["last_name"] if info else None
 
 
-async def upsert_user_info(user_id: int, last_name: str, team: str) -> None:
-    """Сохранить информацию о пользователе (фамилия и команда)."""
+async def upsert_user_info(user_id: int, last_name: str, team: str, is_goalie: bool = False) -> None:
+    """Сохранить информацию о пользователе (фамилия, команда, вратарь)."""
     async with db_connection() as db:
         await db.execute(
             """
-            INSERT INTO users (user_id, last_name, team, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (user_id, last_name, team, is_goalie, updated_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 last_name = excluded.last_name,
                 team = excluded.team,
+                is_goalie = excluded.is_goalie,
                 updated_at = excluded.updated_at
             """,
-            (user_id, last_name, team, datetime.utcnow().isoformat()),
+            (user_id, last_name, team, int(is_goalie), datetime.utcnow().isoformat()),
         )
         await db.commit()
     
     # Обновляем кэш
     if len(_user_cache) >= _CACHE_MAX_SIZE:
         _user_cache.pop(next(iter(_user_cache)))
-    _user_cache[user_id] = {"last_name": last_name, "team": team}
+    _user_cache[user_id] = {"last_name": last_name, "team": team, "is_goalie": is_goalie}
 
 
 async def upsert_user_last_name(user_id: int, last_name: str) -> None:
@@ -299,19 +318,21 @@ async def upsert_response(
     last_name: str,
     status: str,
     team: str | None = None,
+    is_goalie: bool = False,
 ) -> None:
     async with db_connection() as db:
         await db.execute(
             """
-            INSERT INTO responses (session_id, chat_id, user_id, last_name, status, team, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO responses (session_id, chat_id, user_id, last_name, status, team, is_goalie, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id, user_id) DO UPDATE SET
                 last_name = excluded.last_name,
                 status = excluded.status,
                 team = excluded.team,
+                is_goalie = excluded.is_goalie,
                 updated_at = excluded.updated_at
             """,
-            (session_id, chat_id, user_id, last_name, status, team, datetime.utcnow().isoformat()),
+            (session_id, chat_id, user_id, last_name, status, team, int(is_goalie), datetime.utcnow().isoformat()),
         )
         await db.commit()
 
@@ -320,7 +341,7 @@ async def fetch_responses(session_id: int) -> list[aiosqlite.Row]:
     async with db_connection() as db:
         cursor = await db.execute(
             """
-            SELECT user_id, last_name, status, team, updated_at
+            SELECT user_id, last_name, status, team, is_goalie, updated_at
             FROM responses
             WHERE session_id = ?
             ORDER BY updated_at ASC

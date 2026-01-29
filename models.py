@@ -24,6 +24,7 @@ class User:
     user_id: int
     last_name: str
     team: Optional[str] = None
+    is_goalie: bool = False
     updated_at: datetime = field(default_factory=datetime.utcnow)
     
     @classmethod
@@ -32,6 +33,7 @@ class User:
             user_id=row["user_id"],
             last_name=row["last_name"],
             team=row["team"] if "team" in row.keys() else None,
+            is_goalie=bool(row["is_goalie"]) if "is_goalie" in row.keys() and row["is_goalie"] else False,
             updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow()
         )
 
@@ -81,6 +83,7 @@ class Response:
     last_name: str
     status: ResponseStatus
     team: Optional[str] = None
+    is_goalie: bool = False
     updated_at: datetime = field(default_factory=datetime.utcnow)
     
     @classmethod
@@ -92,6 +95,7 @@ class Response:
             last_name=row["last_name"],
             status=ResponseStatus(row["status"]),
             team=row["team"] if "team" in row.keys() else None,
+            is_goalie=bool(row["is_goalie"]) if "is_goalie" in row.keys() and row["is_goalie"] else False,
             updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow()
         )
 
@@ -102,6 +106,7 @@ class PlayerInfo:
     last_name: str
     team: Optional[str] = None
     status: Optional[str] = None
+    is_goalie: bool = False
 
 
 @dataclass

@@ -425,7 +425,6 @@ async def goalie_status_callback(callback: CallbackQuery, state: FSMContext, bot
     status = ResponseStatus(status_str)
     await SessionService.add_response(session.id, CHAT_ID, user_id, last_name, status, team, is_goalie=True)
     RESPONSES_TOTAL.labels(status=status_str).inc()
-    TEAM_SELECTIONS_TOTAL.labels(team=team).inc()
     await MessageService.update_summary(bot, session)
     await update_player_metrics(session.id)
     

@@ -66,6 +66,7 @@ async def init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 last_name TEXT NOT NULL,
+                team TEXT,
                 updated_at TEXT NOT NULL
             )
             """
@@ -100,6 +101,18 @@ async def init_db() -> None:
         columns = [row[1] for row in await cursor.fetchall()]
         if "pinned_message_id" not in columns:
             await db.execute("ALTER TABLE sessions ADD COLUMN pinned_message_id INTEGER")
+        
+        # Migration: add team field to users table
+        cursor = await db.execute("PRAGMA table_info(users)")
+        user_columns = [row[1] for row in await cursor.fetchall()]
+        if "team" not in user_columns:
+            await db.execute("ALTER TABLE users ADD COLUMN team TEXT")
+        
+        # Migration: add team field to responses table
+        cursor = await db.execute("PRAGMA table_info(responses)")
+        response_columns = [row[1] for row in await cursor.fetchall()]
+        if "team" not in response_columns:
+            await db.execute("ALTER TABLE responses ADD COLUMN team TEXT")
             
         await db.execute(
             """
@@ -109,6 +122,7 @@ async def init_db() -> None:
                 user_id INTEGER NOT NULL,
                 last_name TEXT NOT NULL,
                 status TEXT NOT NULL,
+                team TEXT,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (session_id, user_id)
             )
@@ -122,20 +136,21 @@ async def init_db() -> None:
         await db.commit()
 
 
-# Простой кэш фамилий в памяти для уменьшения обращений к БД
+# Простой кэш информации о пользователях в памяти для уменьшения обращений к БД
 # Максимум 100 записей, этого достаточно для небольшого бота
-_last_name_cache: dict[int, str] = {}
+_user_cache: dict[int, dict] = {}
 _CACHE_MAX_SIZE = 100
 
 
-async def get_user_last_name(user_id: int) -> str | None:
+async def get_user_info(user_id: int) -> dict | None:
+    """Получить информацию о пользователе (фамилия и команда)."""
     # Сначала проверяем кэш
-    if user_id in _last_name_cache:
-        return _last_name_cache[user_id]
+    if user_id in _user_cache:
+        return _user_cache[user_id]
     
     async with db_connection() as db:
         cursor = await db.execute(
-            "SELECT last_name FROM users WHERE user_id = ?",
+            "SELECT last_name, team FROM users WHERE user_id = ?",
             (user_id,),
         )
         row = await cursor.fetchone()
@@ -143,32 +158,66 @@ async def get_user_last_name(user_id: int) -> str | None:
     
     if row:
         # Добавляем в кэш
-        if len(_last_name_cache) >= _CACHE_MAX_SIZE:
+        if len(_user_cache) >= _CACHE_MAX_SIZE:
             # Удаляем первый элемент (FIFO)
-            _last_name_cache.pop(next(iter(_last_name_cache)))
-        _last_name_cache[user_id] = row["last_name"]
-        return row["last_name"]
+            _user_cache.pop(next(iter(_user_cache)))
+        user_info = {"last_name": row["last_name"], "team": row["team"]}
+        _user_cache[user_id] = user_info
+        return user_info
     return None
 
 
-async def upsert_user_last_name(user_id: int, last_name: str) -> None:
+async def get_user_last_name(user_id: int) -> str | None:
+    """Получить фамилию пользователя (для обратной совместимости)."""
+    info = await get_user_info(user_id)
+    return info["last_name"] if info else None
+
+
+async def upsert_user_info(user_id: int, last_name: str, team: str) -> None:
+    """Сохранить информацию о пользователе (фамилия и команда)."""
     async with db_connection() as db:
         await db.execute(
             """
-            INSERT INTO users (user_id, last_name, updated_at)
-            VALUES (?, ?, ?)
+            INSERT INTO users (user_id, last_name, team, updated_at)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 last_name = excluded.last_name,
+                team = excluded.team,
                 updated_at = excluded.updated_at
             """,
-            (user_id, last_name, datetime.utcnow().isoformat()),
+            (user_id, last_name, team, datetime.utcnow().isoformat()),
         )
         await db.commit()
     
     # Обновляем кэш
-    if len(_last_name_cache) >= _CACHE_MAX_SIZE:
-        _last_name_cache.pop(next(iter(_last_name_cache)))
-    _last_name_cache[user_id] = last_name
+    if len(_user_cache) >= _CACHE_MAX_SIZE:
+        _user_cache.pop(next(iter(_user_cache)))
+    _user_cache[user_id] = {"last_name": last_name, "team": team}
+
+
+async def upsert_user_last_name(user_id: int, last_name: str) -> None:
+    """Сохранить фамилию пользователя (для обратной совместимости)."""
+    # Получаем текущую команду, если есть
+    info = await get_user_info(user_id)
+    team = info["team"] if info else None
+    
+    async with db_connection() as db:
+        await db.execute(
+            """
+            INSERT INTO users (user_id, last_name, team, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                last_name = excluded.last_name,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, last_name, team, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+    
+    # Обновляем кэш
+    if len(_user_cache) >= _CACHE_MAX_SIZE:
+        _user_cache.pop(next(iter(_user_cache)))
+    _user_cache[user_id] = {"last_name": last_name, "team": team}
 
 
 async def get_open_session(chat_id: int) -> aiosqlite.Row | None:
@@ -249,18 +298,20 @@ async def upsert_response(
     user_id: int,
     last_name: str,
     status: str,
+    team: str | None = None,
 ) -> None:
     async with db_connection() as db:
         await db.execute(
             """
-            INSERT INTO responses (session_id, chat_id, user_id, last_name, status, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO responses (session_id, chat_id, user_id, last_name, status, team, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id, user_id) DO UPDATE SET
                 last_name = excluded.last_name,
                 status = excluded.status,
+                team = excluded.team,
                 updated_at = excluded.updated_at
             """,
-            (session_id, chat_id, user_id, last_name, status, datetime.utcnow().isoformat()),
+            (session_id, chat_id, user_id, last_name, status, team, datetime.utcnow().isoformat()),
         )
         await db.commit()
 
@@ -269,7 +320,7 @@ async def fetch_responses(session_id: int) -> list[aiosqlite.Row]:
     async with db_connection() as db:
         cursor = await db.execute(
             """
-            SELECT user_id, last_name, status, updated_at
+            SELECT user_id, last_name, status, team, updated_at
             FROM responses
             WHERE session_id = ?
             ORDER BY updated_at ASC
@@ -308,6 +359,39 @@ async def delete_response_by_last_name(session_id: int, last_name: str) -> bool:
             WHERE session_id = ? AND LOWER(last_name) = LOWER(?)
             """,
             (session_id, last_name),
+        )
+        await db.commit()
+        return True
+
+
+async def update_response_team_by_last_name(session_id: int, last_name: str, new_team: str) -> bool:
+    """Обновляет команду участника по фамилии.
+    
+    Возвращает True если участник найден и обновлён, False если не найден.
+    """
+    async with db_connection() as db:
+        # Проверяем, есть ли такой участник
+        cursor = await db.execute(
+            """
+            SELECT user_id FROM responses
+            WHERE session_id = ? AND LOWER(last_name) = LOWER(?)
+            """,
+            (session_id, last_name),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        
+        if not row:
+            return False
+        
+        # Обновляем команду участника
+        await db.execute(
+            """
+            UPDATE responses
+            SET team = ?, updated_at = ?
+            WHERE session_id = ? AND LOWER(last_name) = LOWER(?)
+            """,
+            (new_team, datetime.utcnow().isoformat(), session_id, last_name),
         )
         await db.commit()
         return True

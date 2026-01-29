@@ -12,14 +12,17 @@ from db import (
     fetch_responses,
     get_open_session,
     get_session_by_date,
+    get_user_info,
     get_user_last_name,
     set_list_message_id,
     set_pinned_message_id,
     upsert_response,
+    upsert_user_info,
     upsert_user_last_name,
     delete_response_by_last_name,
+    update_response_team_by_last_name,
 )
-from models import Response, ResponseStatus, Session, SessionSummary
+from models import PlayerInfo, Response, ResponseStatus, Session, SessionSummary
 from utils import format_summary_message, get_now, next_wednesday
 
 
@@ -116,15 +119,21 @@ class SessionService:
         chat_id: int,
         user_id: int,
         last_name: str,
-        status: ResponseStatus
+        status: ResponseStatus,
+        team: str | None = None
     ) -> None:
         """Add or update player response."""
-        await upsert_response(session_id, chat_id, user_id, last_name, status.value)
+        await upsert_response(session_id, chat_id, user_id, last_name, status.value, team)
     
     @classmethod
     async def delete_response(cls, session_id: int, last_name: str) -> bool:
         """Delete response by last name."""
         return await delete_response_by_last_name(session_id, last_name)
+    
+    @classmethod
+    async def update_team(cls, session_id: int, last_name: str, new_team: str) -> bool:
+        """Update team for a response by last name."""
+        return await update_response_team_by_last_name(session_id, last_name, new_team)
     
     @classmethod
     async def get_responses(cls, session_id: int) -> list[Response]:
@@ -139,13 +148,17 @@ class SessionService:
         
         summary = SessionSummary(session=session)
         for resp in responses:
-            label = f'{resp.last_name} — {resp.status.value}'
+            player = PlayerInfo(
+                last_name=resp.last_name,
+                team=resp.team,
+                status=resp.status.value
+            )
             if resp.status == ResponseStatus.YES:
-                summary.yes.append(label)
+                summary.yes.append(player)
             elif resp.status == ResponseStatus.MAYBE:
-                summary.maybe.append(label)
+                summary.maybe.append(player)
             elif resp.status == ResponseStatus.NO:
-                summary.no.append(label)
+                summary.no.append(player)
         
         return summary
     
@@ -180,6 +193,16 @@ class UserService:
         return await get_user_last_name(user_id)
     
     @classmethod
+    async def get_info(cls, user_id: int) -> Optional[dict]:
+        """Get user's info (last_name and team)."""
+        return await get_user_info(user_id)
+    
+    @classmethod
     async def save_last_name(cls, user_id: int, last_name: str) -> None:
         """Save user's last name."""
         await upsert_user_last_name(user_id, last_name)
+    
+    @classmethod
+    async def save_user_info(cls, user_id: int, last_name: str, team: str) -> None:
+        """Save user's info (last_name and team)."""
+        await upsert_user_info(user_id, last_name, team)

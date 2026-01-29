@@ -23,6 +23,7 @@ class User:
     """User model."""
     user_id: int
     last_name: str
+    team: Optional[str] = None
     updated_at: datetime = field(default_factory=datetime.utcnow)
     
     @classmethod
@@ -30,6 +31,7 @@ class User:
         return cls(
             user_id=row["user_id"],
             last_name=row["last_name"],
+            team=row["team"] if "team" in row.keys() else None,
             updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow()
         )
 
@@ -78,6 +80,7 @@ class Response:
     user_id: int
     last_name: str
     status: ResponseStatus
+    team: Optional[str] = None
     updated_at: datetime = field(default_factory=datetime.utcnow)
     
     @classmethod
@@ -88,17 +91,26 @@ class Response:
             user_id=row["user_id"],
             last_name=row["last_name"],
             status=ResponseStatus(row["status"]),
+            team=row["team"] if "team" in row.keys() else None,
             updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else datetime.utcnow()
         )
+
+
+@dataclass
+class PlayerInfo:
+    """Player info for summary lists."""
+    last_name: str
+    team: Optional[str] = None
+    status: Optional[str] = None
 
 
 @dataclass
 class SessionSummary:
     """Session summary with player lists."""
     session: Session
-    yes: list[str] = field(default_factory=list)
-    maybe: list[str] = field(default_factory=list)
-    no: list[str] = field(default_factory=list)
+    yes: list[PlayerInfo] = field(default_factory=list)
+    maybe: list[PlayerInfo] = field(default_factory=list)
+    no: list[PlayerInfo] = field(default_factory=list)
     
     @property
     def yes_count(self) -> int:

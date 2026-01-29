@@ -68,7 +68,9 @@ async def close_current_session(bot: Bot) -> None:
     await SessionService.close_session(session.id)
     SessionService.invalidate_cache(CHAT_ID)
     
-    await bot.send_message(chat_id=CHAT_ID, text="Сессия закрыта.")
+    msg = await bot.send_message(chat_id=CHAT_ID, text="Сессия закрыта.")
+    # Удаляем сообщение через 3 секунды
+    MessageService.schedule_delete(bot, CHAT_ID, msg.message_id, delay=3)
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:

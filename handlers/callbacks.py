@@ -6,7 +6,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
 from config import CHAT_ID
-from db import get_user_last_name
+from db import get_user_info
+from handlers.keyboard import build_team_keyboard
 from metrics import CALLBACKS_TOTAL, GUESTS_ADDED_TOTAL, PLAYERS_CURRENT, RESPONSES_TOTAL
 from middleware import is_chat_admin, track_duration
 from models import ResponseStatus
@@ -43,13 +44,25 @@ async def status_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) 
     
     status = ResponseStatus(status_str)
     user_id = callback.from_user.id
-    last_name = await get_user_last_name(user_id)
+    user_info = await get_user_info(user_id)
     
-    if not last_name:
-        # User needs to provide last name first
+    # Если нет фамилии - запрашиваем фамилию
+    if not user_info:
         await state.set_state(LastNameState.waiting_last_name)
         await state.update_data(pending_status=status.value)
         prompt_msg = await callback.message.answer("Пожалуйста, отправь свою фамилию.")
+        MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
+        await callback.answer()
+        return
+    
+    last_name = user_info["last_name"]
+    team = user_info.get("team")
+    
+    # Если нет команды - запрашиваем команду
+    if not team:
+        await state.set_state(LastNameState.waiting_team)
+        await state.update_data(pending_status=status.value, last_name=last_name)
+        prompt_msg = await callback.message.answer("Выбери свою команду:", reply_markup=build_team_keyboard())
         MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
         await callback.answer()
         return
@@ -59,7 +72,7 @@ async def status_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) 
         await callback.answer("Сессия закрыта.")
         return
     
-    await SessionService.add_response(session.id, CHAT_ID, user_id, last_name, status)
+    await SessionService.add_response(session.id, CHAT_ID, user_id, last_name, status, team)
     RESPONSES_TOTAL.labels(status=status.value).inc()
     
     await MessageService.update_summary(bot, session)
@@ -114,5 +127,30 @@ async def delete_guest_callback(callback: CallbackQuery, state: FSMContext, bot:
     
     await state.set_state(LastNameState.waiting_delete_last_name)
     prompt_msg = await callback.message.answer("Введите фамилию участника, которого нужно удалить из списка:")
+    MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "change_team")
+@track_duration("change_team")
+async def change_team_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Handle 'Change team' button press."""
+    CALLBACKS_TOTAL.labels(action="change_team").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    session = await SessionService.get_or_create_session(CHAT_ID)
+    if session.is_closed:
+        await callback.answer("Сессия закрыта.")
+        return
+    
+    if not await is_chat_admin(bot, callback.message.chat.id, callback.from_user.id):
+        await callback.answer("Только администраторы могут изменять команду участников.", show_alert=True)
+        return
+    
+    await state.set_state(LastNameState.waiting_change_team_last_name)
+    prompt_msg = await callback.message.answer("Введите фамилию участника, которому нужно изменить команду:")
     MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
     await callback.answer()

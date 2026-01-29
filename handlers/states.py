@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from config import CHAT_ID
-from handlers.keyboard import build_team_keyboard
+from handlers.keyboard import build_team_keyboard, build_goalie_status_keyboard
 from metrics import CALLBACKS_TOTAL, GUESTS_ADDED_TOTAL, GUESTS_DELETED_TOTAL, PLAYERS_CURRENT, RESPONSES_TOTAL, TEAM_CHANGES_TOTAL, TEAM_SELECTIONS_TOTAL
 from middleware import track_duration
 from models import ResponseStatus
@@ -28,6 +28,10 @@ class LastNameState(StatesGroup):
     waiting_delete_last_name = State()
     waiting_change_team_last_name = State()  # Для изменения команды участника
     waiting_change_team_select = State()  # Для выбора новой команды
+    # Состояния для вратаря
+    waiting_goalie_last_name = State()
+    waiting_goalie_team = State()
+    waiting_goalie_status = State()
 
 
 async def update_player_metrics(session_id: int) -> None:
@@ -333,5 +337,111 @@ async def change_team_select_callback(callback: CallbackQuery, state: FSMContext
         confirm_msg = await callback.message.answer(f"❌ Участник с фамилией '{change_last_name}' не найден в списке.")
     
     MessageService.schedule_delete(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=5)
+    
+    await callback.answer()
+
+
+# ============ Обработчики для вратаря ============
+
+@router.message(LastNameState.waiting_goalie_last_name)
+async def goalie_last_name_handler(message: Message, state: FSMContext, bot: Bot) -> None:
+    """Обработчик ввода фамилии вратаря."""
+    if message.chat.id != CHAT_ID:
+        return
+    
+    if not message.text:
+        error_msg = await message.answer("Пожалуйста, отправь текстовое сообщение с фамилией.")
+        MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
+        return
+    
+    last_name = message.text.strip()
+    if not last_name:
+        error_msg = await message.answer("Фамилия не может быть пустой. Попробуй еще раз.")
+        MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
+        return
+    
+    # Удаляем сообщение пользователя
+    MessageService.schedule_delete(bot, message.chat.id, message.message_id, delay=3)
+    
+    # Сохраняем фамилию и переходим к выбору команды
+    await state.set_state(LastNameState.waiting_goalie_team)
+    await state.update_data(last_name=last_name, is_goalie=True)
+    
+    prompt_msg = await message.answer("Выбери свою команду:", reply_markup=build_team_keyboard())
+    MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
+
+
+@router.callback_query(F.data.startswith("team:"), LastNameState.waiting_goalie_team)
+@track_duration("goalie_team_callback")
+async def goalie_team_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Обработчик выбора команды для вратаря."""
+    CALLBACKS_TOTAL.labels(action="goalie_team_select").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    team = callback.data.split(":", 1)[1]
+    await state.update_data(team=team)
+    
+    # Удаляем сообщение с кнопками выбора команды
+    await MessageService.delete_message_safe(bot, callback.message.chat.id, callback.message.message_id)
+    
+    # Переходим к выбору статуса
+    await state.set_state(LastNameState.waiting_goalie_status)
+    
+    prompt_msg = await callback.message.answer("Выбери свой статус:", reply_markup=build_goalie_status_keyboard())
+    MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("goalie_status:"), LastNameState.waiting_goalie_status)
+@track_duration("goalie_status_callback")
+async def goalie_status_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Обработчик выбора статуса для вратаря."""
+    CALLBACKS_TOTAL.labels(action="goalie_status_select").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    status_str = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    last_name = data.get("last_name")
+    team = data.get("team")
+    
+    if not last_name or not team:
+        await callback.answer("Произошла ошибка. Попробуй ещё раз.")
+        await state.clear()
+        return
+    
+    user_id = callback.from_user.id
+    
+    # Сохраняем пользователя как вратаря
+    await UserService.save_user_info(user_id, last_name, team, is_goalie=True)
+    
+    session = await SessionService.get_or_create_session(CHAT_ID)
+    if session.is_closed:
+        await callback.answer("Сессия закрыта.")
+        await state.clear()
+        return
+    
+    status = ResponseStatus(status_str)
+    await SessionService.add_response(session.id, CHAT_ID, user_id, last_name, status, team, is_goalie=True)
+    RESPONSES_TOTAL.labels(status=status_str).inc()
+    TEAM_SELECTIONS_TOTAL.labels(team=team).inc()
+    await MessageService.update_summary(bot, session)
+    await update_player_metrics(session.id)
+    
+    await state.clear()
+    
+    # Удаляем сообщение с кнопками выбора статуса
+    await MessageService.delete_message_safe(bot, callback.message.chat.id, callback.message.message_id)
+    
+    # Отправляем подтверждение
+    team_display = format_team_with_emoji(team)
+    confirm_msg = await callback.message.answer(f"✅ Вратарь {last_name} ({team_display}) добавлен в список.")
+    MessageService.schedule_delete(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=3)
     
     await callback.answer()

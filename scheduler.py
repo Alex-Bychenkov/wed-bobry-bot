@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from aiogram import Bot
 
 from config import CHAT_ID, NOTIFY_TIME, TIMEZONE
 from db import close_session, get_open_session, set_pinned_message_id, set_list_message_id
-from handlers import build_prompt_keyboard, ensure_list_message, ensure_session, invalidate_session_cache
+from handlers import build_prompt_keyboard, ensure_list_message, ensure_session, invalidate_session_cache, delete_message_later
 from utils import parse_notify_time
 from metrics import SCHEDULER_JOBS_TOTAL
 
@@ -71,7 +72,9 @@ async def close_current_session(bot: Bot) -> None:
     await close_session(session["id"])
     # Инвалидируем кэш сессии
     invalidate_session_cache(CHAT_ID)
-    await bot.send_message(chat_id=CHAT_ID, text="Сессия закрыта.")
+    msg = await bot.send_message(chat_id=CHAT_ID, text="Сессия закрыта.")
+    # Удаляем сообщение через 3 секунды
+    asyncio.create_task(delete_message_later(bot, CHAT_ID, msg.message_id, delay=3))
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:

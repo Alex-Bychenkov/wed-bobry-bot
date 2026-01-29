@@ -12,6 +12,18 @@ def build_prompt_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="Не смогу пойти, занят", callback_data="status:NO"),
         InlineKeyboardButton(text="➕ Добавить участника не из группы", callback_data="add_guest"),
         InlineKeyboardButton(text="➖ Удалить участника не из группы", callback_data="delete_guest"),
+        InlineKeyboardButton(text="🔄 Изменить команду участника", callback_data="change_team"),
     )
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def build_team_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора команды."""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="Армада 🛡️", callback_data="team:Армада"),
+        InlineKeyboardButton(text="Кабаны 🐗", callback_data="team:Кабаны"),
+    )
+    builder.adjust(2)
     return builder.as_markup()

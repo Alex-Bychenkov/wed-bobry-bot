@@ -40,9 +40,12 @@ from db import (
     fetch_responses,
     get_open_session,
     get_session_by_date,
+    get_user_info,
     get_user_last_name,
     set_list_message_id,
+    update_response_team_by_last_name,
     upsert_response,
+    upsert_user_info,
     upsert_user_last_name,
 )
 from utils import (
@@ -51,6 +54,7 @@ from utils import (
     STATUS_NO,
     STATUS_YES,
     format_summary_message,
+    format_team_with_emoji,
     get_now,
     next_wednesday,
 )
@@ -81,8 +85,12 @@ async def update_player_metrics(session_id: int) -> None:
 
 class LastNameState(StatesGroup):
     waiting_last_name = State()
+    waiting_team = State()  # Для выбора команды после фамилии
     waiting_guest_last_name = State()  # Для добавления гостя
+    waiting_guest_team = State()  # Для выбора команды гостя
     waiting_delete_last_name = State()  # Для удаления участника
+    waiting_change_team_last_name = State()  # Для изменения команды участника
+    waiting_change_team_select = State()  # Для выбора новой команды
 
 
 def build_prompt_keyboard() -> InlineKeyboardMarkup:
@@ -93,8 +101,20 @@ def build_prompt_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="Не смогу пойти, занят", callback_data="status:NO"),
         InlineKeyboardButton(text="➕ Добавить участника не из группы", callback_data="add_guest"),
         InlineKeyboardButton(text="➖ Удалить участника не из группы", callback_data="delete_guest"),
+        InlineKeyboardButton(text="🔄 Изменить команду участника", callback_data="change_team"),
     )
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def build_team_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора команды."""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="Армада 🛡️", callback_data="team:Армада"),
+        InlineKeyboardButton(text="Кабаны 🐗", callback_data="team:Кабаны"),
+    )
+    builder.adjust(2)
     return builder.as_markup()
 
 
@@ -157,13 +177,17 @@ async def build_summary_text(session: dict) -> str:
     maybe = []
     no = []
     for row in rows:
-        label = f'{row["last_name"]} — {row["status"]}'
+        player = {
+            "last_name": row["last_name"],
+            "team": row["team"],
+            "status": row["status"],
+        }
         if row["status"] == STATUS_YES:
-            yes.append(label)
+            yes.append(player)
         elif row["status"] == STATUS_MAYBE:
-            maybe.append(label)
+            maybe.append(player)
         elif row["status"] == STATUS_NO:
-            no.append(label)
+            no.append(player)
     target_date = session["target_date"]
     if isinstance(target_date, str):
         target_date = date.fromisoformat(target_date)
@@ -375,8 +399,10 @@ async def status_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) 
         await callback.answer("Неизвестный статус.")
         return
     user_id = callback.from_user.id
-    last_name = await get_user_last_name(user_id)
-    if not last_name:
+    user_info = await get_user_info(user_id)
+    
+    # Если нет фамилии - запрашиваем фамилию
+    if not user_info:
         await state.set_state(LastNameState.waiting_last_name)
         await state.update_data(pending_status=status)
         prompt_msg = await callback.message.answer("Пожалуйста, отправь свою фамилию.")
@@ -385,11 +411,26 @@ async def status_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) 
         await callback.answer()
         REQUEST_DURATION.labels(handler="status_callback").observe(time.time() - start_time)
         return
+    
+    last_name = user_info["last_name"]
+    team = user_info.get("team")
+    
+    # Если нет команды - запрашиваем команду
+    if not team:
+        await state.set_state(LastNameState.waiting_team)
+        await state.update_data(pending_status=status, last_name=last_name)
+        prompt_msg = await callback.message.answer("Выбери свою команду:", reply_markup=build_team_keyboard())
+        # Удаляем сообщение через 15 секунд
+        asyncio.create_task(delete_message_later(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15))
+        await callback.answer()
+        REQUEST_DURATION.labels(handler="status_callback").observe(time.time() - start_time)
+        return
+    
     session = await ensure_session(CHAT_ID)
     if session["is_closed"]:
         await callback.answer("Сессия закрыта.")
         return
-    await upsert_response(session["id"], CHAT_ID, user_id, last_name, status)
+    await upsert_response(session["id"], CHAT_ID, user_id, last_name, status, team)
     RESPONSES_TOTAL.labels(status=status).inc()
     await update_summary(bot, session)
     
@@ -450,25 +491,73 @@ async def last_name_handler(message: Message, state: FSMContext, bot: Bot) -> No
         asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=10))
         await state.clear()
         return
-    await upsert_user_last_name(message.from_user.id, last_name)
-    session = await ensure_session(CHAT_ID)
-    if session["is_closed"]:
-        error_msg = await message.answer("Сессия закрыта.")
-        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=10))
+    
+    # Удаляем сообщение пользователя с фамилией
+    asyncio.create_task(delete_message_later(bot, message.chat.id, message.message_id, delay=3))
+    
+    # Сохраняем фамилию в state и переходим к выбору команды
+    await state.set_state(LastNameState.waiting_team)
+    await state.update_data(last_name=last_name)
+    
+    prompt_msg = await message.answer("Выбери свою команду:", reply_markup=build_team_keyboard())
+    # Удаляем сообщение через 15 секунд
+    asyncio.create_task(delete_message_later(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15))
+
+
+@router.callback_query(F.data.startswith("team:"), LastNameState.waiting_team)
+async def team_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Обработчик выбора команды для пользователя."""
+    start_time = time.time()
+    CALLBACKS_TOTAL.labels(action="team_select").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    team = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    last_name = data.get("last_name")
+    pending_status = data.get("pending_status")
+    
+    if not last_name or not pending_status:
+        await callback.answer("Произошла ошибка. Попробуй ещё раз.")
         await state.clear()
         return
-    await upsert_response(session["id"], CHAT_ID, message.from_user.id, last_name, pending_status)
+    
+    user_id = callback.from_user.id
+    
+    # Сохраняем пользователя с фамилией и командой
+    await upsert_user_info(user_id, last_name, team)
+    
+    session = await ensure_session(CHAT_ID)
+    if session["is_closed"]:
+        await callback.answer("Сессия закрыта.")
+        await state.clear()
+        return
+    
+    # Добавляем ответ с командой
+    await upsert_response(session["id"], CHAT_ID, user_id, last_name, pending_status, team)
+    RESPONSES_TOTAL.labels(status=pending_status).inc()
     await update_summary(bot, session)
     
     # Update player counts
     await update_player_metrics(session["id"])
     
     await state.clear()
-    # Удаляем сообщение пользователя с фамилией
-    asyncio.create_task(delete_message_later(bot, message.chat.id, message.message_id, delay=3))
+    
+    # Удаляем сообщение с кнопками выбора команды
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
     # Отправляем подтверждение и удаляем его через 3 секунды
-    confirm_msg = await message.answer("Фамилия сохранена и статус обновлен.")
+    team_display = format_team_with_emoji(team)
+    confirm_msg = await callback.message.answer(f"✅ {last_name} ({team_display}) добавлен в список.")
     asyncio.create_task(delete_message_later(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=3))
+    
+    await callback.answer()
+    REQUEST_DURATION.labels(handler="team_callback").observe(time.time() - start_time)
 
 
 @router.message(LastNameState.waiting_guest_last_name)
@@ -490,30 +579,76 @@ async def guest_last_name_handler(message: Message, state: FSMContext, bot: Bot)
     session = await ensure_session(CHAT_ID)
     if session["is_closed"]:
         error_msg = await message.answer("Сессия закрыта.")
-        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=10))
+        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=3))
         await state.clear()
         return
-    
-    # Создаём уникальный ID для гостя (отрицательное число на основе хэша)
-    guest_user_id = -abs(hash(f"{guest_last_name}_{message.from_user.id}_{session['id']}")) % 2147483647
-    
-    # Добавляем гостя в список со статусом YES
-    await upsert_response(session["id"], CHAT_ID, guest_user_id, guest_last_name, STATUS_YES)
-    RESPONSES_TOTAL.labels(status=STATUS_YES).inc()
-    GUESTS_ADDED_TOTAL.inc()
-    await update_summary(bot, session)
-    
-    # Update player counts
-    await update_player_metrics(session["id"])
-    
-    await state.clear()
     
     # Удаляем сообщение пользователя с фамилией
     asyncio.create_task(delete_message_later(bot, message.chat.id, message.message_id, delay=3))
     
+    # Сохраняем данные гостя в state и переходим к выбору команды
+    await state.set_state(LastNameState.waiting_guest_team)
+    await state.update_data(
+        guest_last_name=guest_last_name,
+        session_id=session["id"],
+        added_by_user_id=message.from_user.id
+    )
+    
+    prompt_msg = await message.answer("Выбери команду для гостя:", reply_markup=build_team_keyboard())
+    # Удаляем сообщение через 15 секунд
+    asyncio.create_task(delete_message_later(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15))
+
+
+@router.callback_query(F.data.startswith("team:"), LastNameState.waiting_guest_team)
+async def guest_team_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Обработчик выбора команды для гостя."""
+    start_time = time.time()
+    CALLBACKS_TOTAL.labels(action="guest_team_select").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    team = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    guest_last_name = data.get("guest_last_name")
+    session_id = data.get("session_id")
+    added_by_user_id = data.get("added_by_user_id")
+    
+    if not guest_last_name or not session_id:
+        await callback.answer("Произошла ошибка. Попробуй ещё раз.")
+        await state.clear()
+        return
+    
+    # Создаём уникальный ID для гостя (отрицательное число на основе хэша)
+    guest_user_id = -abs(hash(f"{guest_last_name}_{added_by_user_id}_{session_id}")) % 2147483647
+    
+    # Добавляем гостя в список со статусом YES и командой
+    await upsert_response(session_id, CHAT_ID, guest_user_id, guest_last_name, STATUS_YES, team)
+    RESPONSES_TOTAL.labels(status=STATUS_YES).inc()
+    GUESTS_ADDED_TOTAL.inc()
+    
+    session = await ensure_session(CHAT_ID)
+    await update_summary(bot, session)
+    
+    # Update player counts
+    await update_player_metrics(session_id)
+    
+    await state.clear()
+    
+    # Удаляем сообщение с кнопками выбора команды
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
     # Отправляем подтверждение и удаляем его через 3 секунды
-    confirm_msg = await message.answer(f"✅ Участник '{guest_last_name}' добавлен в список.")
+    team_display = format_team_with_emoji(team)
+    confirm_msg = await callback.message.answer(f"✅ Гость '{guest_last_name}' ({team_display}) добавлен в список.")
     asyncio.create_task(delete_message_later(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=3))
+    
+    await callback.answer()
+    REQUEST_DURATION.labels(handler="guest_team_callback").observe(time.time() - start_time)
 
 
 @router.callback_query(F.data == "delete_guest")
@@ -591,3 +726,119 @@ async def delete_last_name_handler(message: Message, state: FSMContext, bot: Bot
         confirm_msg = await message.answer(f"❌ Участник с фамилией '{last_name_to_delete}' не найден в списке.")
     
     asyncio.create_task(delete_message_later(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=5))
+
+
+@router.callback_query(F.data == "change_team")
+async def change_team_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Обработчик кнопки 'Изменить команду участника'."""
+    start_time = time.time()
+    CALLBACKS_TOTAL.labels(action="change_team").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    session = await ensure_session(CHAT_ID)
+    if session["is_closed"]:
+        await callback.answer("Сессия закрыта.")
+        return
+    
+    # Проверяем, является ли пользователь администратором
+    if not await is_admin(bot, callback.message.chat.id, callback.from_user.id):
+        await callback.answer("Только администраторы могут изменять команду участников.", show_alert=True)
+        return
+    
+    await state.set_state(LastNameState.waiting_change_team_last_name)
+    prompt_msg = await callback.message.answer("Введите фамилию участника, которому нужно изменить команду:")
+    # Удаляем сообщение через 15 секунд
+    asyncio.create_task(delete_message_later(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15))
+    await callback.answer()
+    
+    REQUEST_DURATION.labels(handler="change_team").observe(time.time() - start_time)
+
+
+@router.message(LastNameState.waiting_change_team_last_name)
+async def change_team_last_name_handler(message: Message, state: FSMContext, bot: Bot) -> None:
+    """Обработчик ввода фамилии для изменения команды."""
+    if message.chat.id != CHAT_ID:
+        return
+    if not message.text:
+        error_msg = await message.answer("Пожалуйста, отправь текстовое сообщение с фамилией.")
+        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=10))
+        return
+    
+    last_name_to_change = message.text.strip()
+    if not last_name_to_change:
+        error_msg = await message.answer("Фамилия не может быть пустой. Попробуй еще раз.")
+        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=10))
+        return
+    
+    session = await ensure_session(CHAT_ID)
+    if session["is_closed"]:
+        error_msg = await message.answer("Сессия закрыта.")
+        asyncio.create_task(delete_message_later(bot, error_msg.chat.id, error_msg.message_id, delay=3))
+        await state.clear()
+        return
+    
+    # Удаляем сообщение пользователя с фамилией
+    asyncio.create_task(delete_message_later(bot, message.chat.id, message.message_id, delay=3))
+    
+    # Сохраняем фамилию в state и переходим к выбору команды
+    await state.set_state(LastNameState.waiting_change_team_select)
+    await state.update_data(
+        change_last_name=last_name_to_change,
+        session_id=session["id"]
+    )
+    
+    prompt_msg = await message.answer(f"Выбери новую команду для '{last_name_to_change}':", reply_markup=build_team_keyboard())
+    # Удаляем сообщение через 15 секунд
+    asyncio.create_task(delete_message_later(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15))
+
+
+@router.callback_query(F.data.startswith("team:"), LastNameState.waiting_change_team_select)
+async def change_team_select_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Обработчик выбора новой команды для участника."""
+    start_time = time.time()
+    CALLBACKS_TOTAL.labels(action="change_team_select").inc()
+    
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+    
+    new_team = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    change_last_name = data.get("change_last_name")
+    session_id = data.get("session_id")
+    
+    if not change_last_name or not session_id:
+        await callback.answer("Произошла ошибка. Попробуй ещё раз.")
+        await state.clear()
+        return
+    
+    # Обновляем команду участника
+    updated = await update_response_team_by_last_name(session_id, change_last_name, new_team)
+    
+    await state.clear()
+    
+    # Удаляем сообщение с кнопками выбора команды
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    if updated:
+        session = await ensure_session(CHAT_ID)
+        await update_summary(bot, session)
+        
+        # Update player counts
+        await update_player_metrics(session_id)
+        
+        team_display = format_team_with_emoji(new_team)
+        confirm_msg = await callback.message.answer(f"✅ Команда участника '{change_last_name}' изменена на {team_display}.")
+    else:
+        confirm_msg = await callback.message.answer(f"❌ Участник с фамилией '{change_last_name}' не найден в списке.")
+    
+    asyncio.create_task(delete_message_later(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=5))
+    
+    await callback.answer()
+    REQUEST_DURATION.labels(handler="change_team_select").observe(time.time() - start_time)

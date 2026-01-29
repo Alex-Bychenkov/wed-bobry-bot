@@ -76,6 +76,20 @@ GUESTS_DELETED_TOTAL = Counter(
     "Total number of guest participants deleted"
 )
 
+# Team changes counter
+TEAM_CHANGES_TOTAL = Counter(
+    "bot_team_changes_total",
+    "Total number of team changes",
+    ["team"]
+)
+
+# Team selections counter (when users first select their team)
+TEAM_SELECTIONS_TOTAL = Counter(
+    "bot_team_selections_total",
+    "Total number of team selections by users",
+    ["team"]
+)
+
 
 class _QuietHandler(WSGIRequestHandler):
     """WSGI handler без логирования запросов для уменьшения I/O."""

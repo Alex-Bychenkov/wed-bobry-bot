@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, Message
 
 from config import CHAT_ID
 from handlers.keyboard import build_team_keyboard, build_goalie_status_keyboard
-from metrics import CALLBACKS_TOTAL, GUESTS_ADDED_TOTAL, GUESTS_DELETED_TOTAL, PLAYERS_CURRENT, RESPONSES_TOTAL
+from metrics import CALLBACKS_TOTAL, GUESTS_ADDED_TOTAL, GUESTS_DELETED_TOTAL, PLAYERS_CURRENT, RESPONSES_TOTAL, TEAM_CHANGES_TOTAL, TEAM_SELECTIONS_TOTAL
 from middleware import track_duration
 from models import ResponseStatus
 from services.message_service import MessageService
@@ -111,6 +111,7 @@ async def team_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) ->
     status = ResponseStatus(pending_status)
     await SessionService.add_response(session.id, CHAT_ID, user_id, last_name, status, team)
     RESPONSES_TOTAL.labels(status=pending_status).inc()
+    TEAM_SELECTIONS_TOTAL.labels(team=team).inc()
     await MessageService.update_summary(bot, session)
     await update_player_metrics(session.id)
     
@@ -194,6 +195,7 @@ async def guest_team_callback(callback: CallbackQuery, state: FSMContext, bot: B
     await SessionService.add_response(session_id, CHAT_ID, guest_user_id, guest_last_name, ResponseStatus.YES, team)
     RESPONSES_TOTAL.labels(status=ResponseStatus.YES.value).inc()
     GUESTS_ADDED_TOTAL.inc()
+    TEAM_SELECTIONS_TOTAL.labels(team=team).inc()
     
     session = await SessionService.get_or_create_session(CHAT_ID)
     await MessageService.update_summary(bot, session)
@@ -316,6 +318,9 @@ async def change_team_select_callback(callback: CallbackQuery, state: FSMContext
     # Обновляем команду участника
     updated = await SessionService.update_team(session_id, change_last_name, new_team)
     
+    if updated:
+        TEAM_CHANGES_TOTAL.labels(team=new_team).inc()
+    
     await state.clear()
     
     # Удаляем сообщение с кнопками выбора команды
@@ -425,6 +430,7 @@ async def goalie_status_callback(callback: CallbackQuery, state: FSMContext, bot
     status = ResponseStatus(status_str)
     await SessionService.add_response(session.id, CHAT_ID, user_id, last_name, status, team, is_goalie=True)
     RESPONSES_TOTAL.labels(status=status_str).inc()
+    TEAM_SELECTIONS_TOTAL.labels(team=team).inc()
     await MessageService.update_summary(bot, session)
     await update_player_metrics(session.id)
     

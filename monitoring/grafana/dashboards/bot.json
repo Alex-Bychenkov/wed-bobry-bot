@@ -263,7 +263,7 @@
           }
         ]
       },
-      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 4},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
       "id": 6,
       "options": {
         "colorMode": "value",
@@ -331,7 +331,7 @@
           }
         ]
       },
-      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 4},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
       "id": 7,
       "options": {
         "legend": {
@@ -357,146 +357,6 @@
         {
           "expr": "bot_players_current",
           "legendFormat": "{{status}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "green", "value": null}
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
-      "id": 9,
-      "options": {
-        "legend": {
-          "calcs": ["mean", "max"],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "title": "Request Rate",
-      "type": "timeseries",
-      "targets": [
-        {
-          "expr": "rate(bot_commands_total[5m])",
-          "legendFormat": "Commands {{command}}",
-          "refId": "A"
-        },
-        {
-          "expr": "rate(bot_callbacks_total[5m])",
-          "legendFormat": "Callbacks {{action}}",
-          "refId": "B"
-        }
-      ]
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            }
-          },
-          "mappings": []
-        },
-        "overrides": [
-          {
-            "matcher": {"id": "byName", "options": "Армада"},
-            "properties": [{"id": "color", "value": {"fixedColor": "blue", "mode": "fixed"}}]
-          },
-          {
-            "matcher": {"id": "byName", "options": "Кабаны"},
-            "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}]
-          }
-        ]
-      },
-      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 26},
-      "id": 13,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "right",
-          "showLegend": true,
-          "values": ["value"]
-        },
-        "pieType": "pie",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "title": "Team Distribution",
-      "type": "piechart",
-      "targets": [
-        {
-          "expr": "sum(bot_team_selections_total) by (team)",
-          "legendFormat": "{{team}}",
           "refId": "A"
         }
       ]

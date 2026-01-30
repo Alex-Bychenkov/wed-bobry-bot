@@ -48,7 +48,7 @@
       "type": "gauge",
       "targets": [
         {
-          "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\",job=\"node\"}[5m])) * 100)",
           "refId": "A"
         }
       ]
@@ -92,7 +92,7 @@
       "type": "gauge",
       "targets": [
         {
-          "expr": "(1 - (node_memory_MemAvailable_bytes{instance=~\"node-exporter:9100\"} / node_memory_MemTotal_bytes{instance=~\"node-exporter:9100\"})) * 100",
+          "expr": "(1 - (node_memory_MemAvailable_bytes{job=\"node\"} / node_memory_MemTotal_bytes{job=\"node\"})) * 100",
           "refId": "A"
         }
       ]
@@ -136,7 +136,7 @@
       "type": "gauge",
       "targets": [
         {
-          "expr": "(1 - (node_filesystem_avail_bytes{mountpoint=\"/\",instance=~\"node-exporter:9100\"} / node_filesystem_size_bytes{mountpoint=\"/\",instance=~\"node-exporter:9100\"})) * 100",
+          "expr": "(1 - (node_filesystem_avail_bytes{mountpoint=\"/\",job=\"node\"} / node_filesystem_size_bytes{mountpoint=\"/\",job=\"node\"})) * 100",
           "refId": "A"
         }
       ]
@@ -180,7 +180,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "node_time_seconds{instance=~\"node-exporter:9100\"} - node_boot_time_seconds{instance=~\"node-exporter:9100\"}",
+          "expr": "node_time_seconds{job=\"node\"} - node_boot_time_seconds{job=\"node\"}",
           "refId": "A"
         }
       ]
@@ -254,7 +254,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\",job=\"node\"}[5m])) * 100)",
           "legendFormat": "CPU Usage",
           "refId": "A"
         }
@@ -329,12 +329,12 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "node_memory_MemTotal_bytes{instance=~\"node-exporter:9100\"} - node_memory_MemAvailable_bytes{instance=~\"node-exporter:9100\"}",
+          "expr": "node_memory_MemTotal_bytes{job=\"node\"} - node_memory_MemAvailable_bytes{job=\"node\"}",
           "legendFormat": "Used",
           "refId": "A"
         },
         {
-          "expr": "node_memory_MemAvailable_bytes{instance=~\"node-exporter:9100\"}",
+          "expr": "node_memory_MemAvailable_bytes{job=\"node\"}",
           "legendFormat": "Available",
           "refId": "B"
         }
@@ -409,12 +409,12 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "rate(node_network_receive_bytes_total{device!~\"lo|docker.*|br.*|veth.*\",instance=~\"node-exporter:9100\"}[5m])",
+          "expr": "rate(node_network_receive_bytes_total{device!~\"lo|docker.*|br.*|veth.*\",job=\"node\"}[5m])",
           "legendFormat": "Receive {{ device }}",
           "refId": "A"
         },
         {
-          "expr": "rate(node_network_transmit_bytes_total{device!~\"lo|docker.*|br.*|veth.*\",instance=~\"node-exporter:9100\"}[5m])",
+          "expr": "rate(node_network_transmit_bytes_total{device!~\"lo|docker.*|br.*|veth.*\",job=\"node\"}[5m])",
           "legendFormat": "Transmit {{ device }}",
           "refId": "B"
         }

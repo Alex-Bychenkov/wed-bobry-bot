@@ -30,26 +30,17 @@ scrape_configs:
         regex: 'prometheus_http_request_duration_seconds_bucket'
         action: drop
 
-  # Node Exporter - server metrics (60s достаточно для системных метрик)
-  # Отсеиваем неиспользуемые метрики для экономии памяти
+  # Node Exporter - server metrics
   - job_name: 'node'
-    scrape_interval: 90s  # Увеличено до 90 секунд
+    scrape_interval: 60s
     static_configs:
       - targets: ['node-exporter:9100']
     metric_relabel_configs:
-      # Оставляем только используемые метрики из dashboards:
-      # - node_cpu_seconds_total
-      # - node_memory_*
-      # - node_filesystem_*
-      # - node_time_seconds, node_boot_time_seconds
-      # - node_network_*
+      # Оставляем только используемые метрики из dashboards
+      # action: keep уже отсеивает всё остальное
       - source_labels: [__name__]
-        regex: 'node_cpu_seconds_total|node_memory_.*|node_filesystem_.*|node_time_seconds|node_boot_time_seconds|node_network_.*'
+        regex: 'node_cpu_seconds_total|node_memory_MemAvailable_bytes|node_memory_MemTotal_bytes|node_filesystem_avail_bytes|node_filesystem_size_bytes|node_time_seconds|node_boot_time_seconds|node_network_receive_bytes_total|node_network_transmit_bytes_total'
         action: keep
-      # Отсеиваем все остальные метрики Node Exporter
-      - source_labels: [__name__]
-        regex: 'node_.*'
-        action: drop
 
   # Bot metrics (30s для актуальности данных бота)
   - job_name: 'bot'

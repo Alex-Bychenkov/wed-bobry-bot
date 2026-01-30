@@ -22,9 +22,9 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      # Уменьшен retention с 30d до 7d для экономии места и памяти
-      - '--storage.tsdb.retention.time=7d'
-      - '--storage.tsdb.retention.size=200MB'
+      # Уменьшен retention с 7d до 3d для экономии места и памяти
+      - '--storage.tsdb.retention.time=3d'
+      - '--storage.tsdb.retention.size=150MB'
       - '--web.enable-lifecycle'
       # Ограничение памяти для TSDB
       - '--storage.tsdb.max-block-duration=2h'

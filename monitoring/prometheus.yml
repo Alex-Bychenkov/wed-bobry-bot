@@ -15,20 +15,49 @@ rule_files:
   - /etc/prometheus/alerts.yml
 
 scrape_configs:
-  # Prometheus self-monitoring (реже опрашиваем себя)
+  # Prometheus self-monitoring (реже опрашиваем себя, отсеиваем большинство метрик)
   - job_name: 'prometheus'
-    scrape_interval: 60s
+    scrape_interval: 120s  # Увеличено до 2 минут
     static_configs:
       - targets: ['localhost:9090']
+    metric_relabel_configs:
+      # Оставляем только базовые метрики для мониторинга работы Prometheus
+      - source_labels: [__name__]
+        regex: 'prometheus_(tsdb|config|rule_group|notifications|http|storage|engine).*'
+        action: drop
+      # Отсеиваем детальные метрики запросов
+      - source_labels: [__name__]
+        regex: 'prometheus_http_request_duration_seconds_bucket'
+        action: drop
 
   # Node Exporter - server metrics (60s достаточно для системных метрик)
+  # Отсеиваем неиспользуемые метрики для экономии памяти
   - job_name: 'node'
-    scrape_interval: 60s
+    scrape_interval: 90s  # Увеличено до 90 секунд
     static_configs:
       - targets: ['node-exporter:9100']
+    metric_relabel_configs:
+      # Оставляем только используемые метрики из dashboards:
+      # - node_cpu_seconds_total
+      # - node_memory_*
+      # - node_filesystem_*
+      # - node_time_seconds, node_boot_time_seconds
+      # - node_network_*
+      - source_labels: [__name__]
+        regex: 'node_cpu_seconds_total|node_memory_.*|node_filesystem_.*|node_time_seconds|node_boot_time_seconds|node_network_.*'
+        action: keep
+      # Отсеиваем все остальные метрики Node Exporter
+      - source_labels: [__name__]
+        regex: 'node_.*'
+        action: drop
 
   # Bot metrics (30s для актуальности данных бота)
   - job_name: 'bot'
-    scrape_interval: 30s
+    scrape_interval: 45s  # Немного увеличено для экономии
     static_configs:
       - targets: ['wed-bobry-bot:8000']
+    metric_relabel_configs:
+      # Отсеиваем неиспользуемые метрики для экономии памяти
+      - source_labels: [__name__]
+        regex: 'bot_(team_changes_total|guests_added_total|guests_deleted_total|responses_total)'
+        action: drop

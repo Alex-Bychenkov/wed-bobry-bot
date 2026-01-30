@@ -23,13 +23,13 @@ groups:
 
       # High memory usage
       - alert: HighMemoryUsage
-        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 98
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "High memory usage detected"
-          description: "Memory usage is above 95%. Current value: {{ $value | printf \"%.1f\" }}%"
+          description: "Memory usage is above 98%. Current value: {{ $value | printf \"%.1f\" }}%"
 
       # Disk space low
       - alert: DiskSpaceLow

@@ -1,0 +1,45 @@
+name: Cleanup Prometheus Metrics
+
+# Запускается каждое воскресенье в 3:00 ночи (MSK = 00:00 UTC)
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  # Можно запустить вручную
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Cleanup Prometheus metrics
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER }}
+          username: ${{ secrets.LOGIN }}
+          password: ${{ secrets.PASSWORD }}
+          script: |
+            echo "🗑️ Очистка метрик Prometheus..."
+            
+            cd /opt/monitoring
+            
+            # Останавливаем Prometheus
+            docker-compose -f docker-compose.monitoring.yml stop prometheus
+            
+            # Удаляем данные
+            docker volume rm monitoring_prometheus_data 2>/dev/null || true
+            
+            # Запускаем Prometheus
+            docker-compose -f docker-compose.monitoring.yml up -d prometheus
+            
+            # Ждём запуска
+            sleep 10
+            
+            # Перезапускаем Grafana для переподключения
+            docker-compose -f docker-compose.monitoring.yml restart grafana
+            
+            echo "✅ Очистка завершена"
+            docker-compose -f docker-compose.monitoring.yml ps
+
+      - name: Cleanup complete
+        run: echo "✅ Метрики Prometheus очищены"

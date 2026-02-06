@@ -53,6 +53,13 @@ async def cmd_status(message: Message, bot: Bot) -> None:
     """Handle /status command - show current list."""
     COMMANDS_TOTAL.labels(command="status").inc()
     
+    chat_id = message.chat.id
+    
+    # Delete previous /start or /status message with buttons
+    old_message_id = MessageService.get_last_start_message(chat_id)
+    if old_message_id:
+        await MessageService.delete_message_safe(bot, chat_id, old_message_id)
+    
     # Force refresh session from DB
     SessionService.invalidate_cache(CHAT_ID)
     session = await SessionService.get_or_create_session(CHAT_ID, force_refresh=True)
@@ -67,6 +74,14 @@ async def cmd_status(message: Message, bot: Bot) -> None:
         await SessionService.update_list_message_id(session.id, None)
         session.list_message_id = None
         SessionService.invalidate_cache(CHAT_ID)
+    
+    # Create new prompt message with buttons
+    text = (
+        "Привет! Нажми кнопку под сообщением бота и выбери статус.\n"
+        "Если фамилия еще не сохранена, бот попросит ее один раз."
+    )
+    new_message = await message.answer(text, reply_markup=build_prompt_keyboard())
+    MessageService.set_last_start_message(chat_id, new_message.message_id)
     
     # Create new list message
     await MessageService.ensure_list_message(bot, session)

@@ -69,8 +69,18 @@ def format_player_line(player) -> str:
     return f"{last_name} - {status}{goalie_suffix}"
 
 
-def format_status_list(title: str, items: list) -> str:
-    """Форматирует список игроков с нумерацией."""
+def format_status_list(title: str, items: list, exclude_goalies: bool = False) -> str:
+    """Форматирует список игроков с нумерацией.
+    
+    Args:
+        title: Заголовок списка
+        items: Список игроков
+        exclude_goalies: Если True, вратари не включаются в список
+    """
+    # Фильтруем вратарей если нужно
+    if exclude_goalies:
+        items = [p for p in items if not (p.is_goalie if hasattr(p, 'is_goalie') else p.get("is_goalie", False))]
+    
     if not items:
         return f"{title}\n—"
     numbered = "\n".join(
@@ -82,16 +92,11 @@ def format_status_list(title: str, items: list) -> str:
 
 def format_team_summary(yes_players: list) -> str:
     """Форматирует саммаризацию по командам (без учета вратарей)."""
-    armada_count = sum(
-        1 for p in yes_players 
-        if (p.team if hasattr(p, 'team') else p.get("team")) == "Армада"
-        and not (p.is_goalie if hasattr(p, 'is_goalie') else p.get("is_goalie", False))
-    )
-    kabany_count = sum(
-        1 for p in yes_players 
-        if (p.team if hasattr(p, 'team') else p.get("team")) == "Кабаны"
-        and not (p.is_goalie if hasattr(p, 'is_goalie') else p.get("is_goalie", False))
-    )
+    # Исключаем вратарей из подсчета
+    non_goalie_players = [p for p in yes_players if not (p.is_goalie if hasattr(p, 'is_goalie') else p.get("is_goalie", False))]
+    
+    armada_count = sum(1 for p in non_goalie_players if (p.team if hasattr(p, 'team') else p.get("team")) == "Армада")
+    kabany_count = sum(1 for p in non_goalie_players if (p.team if hasattr(p, 'team') else p.get("team")) == "Кабаны")
     
     return f'Игроков команды "Армада 🛡️" будет на игре - {armada_count}\nИгроков команды "Кабаны 🐗" будет на игре - {kabany_count}'
 
@@ -118,11 +123,12 @@ def format_goalies_list(yes_players: list) -> str:
 
 def format_summary_message(target_date: date, yes: list, maybe: list, no: list) -> str:
     header = format_summary_header(target_date)
-    block_yes = format_status_list("Я буду хоккеюги", yes)
+    block_yes = format_status_list("Я буду хоккеюги", yes, exclude_goalies=True)
     block_maybe = format_status_list("Пока не определился", maybe)
     block_no = format_status_list("Не смогу пойти, сорри", no)
     team_summary = format_team_summary(yes)
-    return "\n\n".join([header, block_yes, block_maybe, block_no, team_summary])
+    goalies_list = format_goalies_list(yes)
+    return "\n\n".join([header, block_yes, block_maybe, block_no, team_summary, goalies_list])
 
 
 def parse_notify_time(value: str) -> time:

@@ -81,9 +81,17 @@ def format_status_list(title: str, items: list) -> str:
 
 
 def format_team_summary(yes_players: list) -> str:
-    """Форматирует саммаризацию по командам."""
-    armada_count = sum(1 for p in yes_players if (p.team if hasattr(p, 'team') else p.get("team")) == "Армада")
-    kabany_count = sum(1 for p in yes_players if (p.team if hasattr(p, 'team') else p.get("team")) == "Кабаны")
+    """Форматирует саммаризацию по командам (без учета вратарей)."""
+    armada_count = sum(
+        1 for p in yes_players 
+        if (p.team if hasattr(p, 'team') else p.get("team")) == "Армада"
+        and not (p.is_goalie if hasattr(p, 'is_goalie') else p.get("is_goalie", False))
+    )
+    kabany_count = sum(
+        1 for p in yes_players 
+        if (p.team if hasattr(p, 'team') else p.get("team")) == "Кабаны"
+        and not (p.is_goalie if hasattr(p, 'is_goalie') else p.get("is_goalie", False))
+    )
     
     return f'Игроков команды "Армада 🛡️" будет на игре - {armada_count}\nИгроков команды "Кабаны 🐗" будет на игре - {kabany_count}'
 
@@ -114,8 +122,7 @@ def format_summary_message(target_date: date, yes: list, maybe: list, no: list) 
     block_maybe = format_status_list("Пока не определился", maybe)
     block_no = format_status_list("Не смогу пойти, сорри", no)
     team_summary = format_team_summary(yes)
-    goalies_list = format_goalies_list(yes)
-    return "\n\n".join([header, block_yes, block_maybe, block_no, team_summary, goalies_list])
+    return "\n\n".join([header, block_yes, block_maybe, block_no, team_summary])
 
 
 def parse_notify_time(value: str) -> time:

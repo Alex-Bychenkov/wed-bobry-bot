@@ -43,7 +43,17 @@ groups:
 
   - name: bot_alerts
     rules:
-      # Bot down
+      # Раннее предупреждение: бот не отвечает 30 сек (успеть среагировать до critical)
+      - alert: BotDownWarning
+        expr: up{job="bot"} == 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bot metrics endpoint temporarily unavailable"
+          description: "Bot metrics have been down for 30 seconds. If it continues, BotDown (critical) will fire in 2 minutes."
+
+      # Bot down (critical)
       - alert: BotDown
         expr: up{job="bot"} == 0
         for: 2m

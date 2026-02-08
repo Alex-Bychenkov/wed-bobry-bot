@@ -40,7 +40,7 @@ async def main() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     
-    # Start Prometheus metrics server
+    # Start Prometheus metrics server (first — so /metrics is up before polling)
     try:
         logging.info("Starting metrics server...")
         start_metrics_server(port=8000)
@@ -50,7 +50,11 @@ async def main() -> None:
         raise
     
     # Initialize database
-    await init_db()
+    try:
+        await init_db()
+    except Exception as e:
+        logging.error(f"Failed to initialize database: {e}", exc_info=True)
+        raise
     
     # Create bot instance
     bot = Bot(token=BOT_TOKEN)
@@ -75,8 +79,16 @@ async def main() -> None:
     scheduler.start()
     
     logging.info("Bot starting polling...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    except Exception as e:
+        logging.critical(f"Bot crashed: {e}", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logging.critical(f"Fatal error: {e}", exc_info=True)
+        raise

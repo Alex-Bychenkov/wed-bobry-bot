@@ -20,12 +20,19 @@ services:
     restart: unless-stopped
     networks:
       - monitoring
-    # Ограничения ресурсов для экономии памяти
+    # Ограничения ресурсов (120M было мало — возможен OOM и BotDown)
     deploy:
       resources:
         limits:
-          memory: 120M
+          memory: 200M
         reservations:
-          memory: 60M
-    mem_limit: 120m
-    memswap_limit: 150m
+          memory: 80M
+    mem_limit: 200m
+    memswap_limit: 250m
+    # Healthcheck: при недоступности /metrics контейнер перезапустится
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 25s

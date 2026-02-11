@@ -1,7 +1,8 @@
 """Prometheus metrics for the bot."""
 from prometheus_client import Counter, Gauge, Histogram, Info
 from prometheus_client import make_wsgi_app, REGISTRY
-from wsgiref.simple_server import make_server, WSGIRequestHandler
+from wsgiref.simple_server import make_server, WSGIRequestHandler, WSGIServer
+from socketserver import ThreadingMixIn
 import threading
 import logging
 
@@ -92,9 +93,29 @@ TEAM_SELECTIONS_TOTAL = Counter(
 
 
 class _QuietHandler(WSGIRequestHandler):
-    """WSGI handler без логирования запросов для уменьшения I/O."""
+    """WSGI handler без логирования запросов и с таймаутом на сокетах."""
+
+    # Таймаут чтения запроса — не даём зависшим подключениям блокировать сервер
+    timeout = 5
+
     def log_message(self, format, *args):
         pass  # Не логируем каждый scrape от Prometheus
+
+    def handle(self):
+        """Обработка запроса с таймаутом на сокете."""
+        self.request.settimeout(self.timeout)
+        try:
+            super().handle()
+        except (TimeoutError, OSError):
+            pass  # Сканер/медленный клиент — молча закрываем
+
+
+class _ThreadingWSGIServer(ThreadingMixIn, WSGIServer):
+    """Многопоточный WSGI-сервер: каждый запрос в отдельном потоке.
+
+    Одно зависшее подключение не блокирует остальные (healthcheck, Prometheus).
+    """
+    daemon_threads = True
 
 
 def start_metrics_server(port: int = 8000) -> None:
@@ -102,7 +123,11 @@ def start_metrics_server(port: int = 8000) -> None:
     logging.info(f"Starting metrics server on 0.0.0.0:{port}")
     try:
         app = make_wsgi_app(registry=REGISTRY)
-        httpd = make_server('0.0.0.0', port, app, handler_class=_QuietHandler)
+        httpd = make_server(
+            '0.0.0.0', port, app,
+            handler_class=_QuietHandler,
+            server_class=_ThreadingWSGIServer,
+        )
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         thread.start()
         logging.info(f"Metrics server started successfully on 0.0.0.0:{port}")

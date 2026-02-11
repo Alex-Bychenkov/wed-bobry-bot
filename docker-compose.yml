@@ -15,8 +15,10 @@ services:
       - TZ=${TIMEZONE:-Europe/Moscow}
     volumes:
       - ./data:/app/data
-    ports:
-      - "8000:8000"
+    # Порт НЕ публикуем наружу — Prometheus ходит через Docker-сеть monitoring.
+    # Это предотвращает блокировку metrics-сервера интернет-сканерами.
+    expose:
+      - "8000"
     restart: unless-stopped
     networks:
       - monitoring

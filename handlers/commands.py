@@ -29,14 +29,22 @@ router = Router()
 async def cmd_start(message: Message, bot: Bot) -> None:
     """Handle /start command - show main menu."""
     COMMANDS_TOTAL.labels(command="start").inc()
-    
+
     chat_id = message.chat.id
-    
+
     # Delete previous /start message
     old_message_id = MessageService.get_last_start_message(chat_id)
     if old_message_id:
         await MessageService.delete_message_safe(bot, chat_id, old_message_id)
-    
+
+    # Delete pinned notification message from scheduler (the "Бобры" message with buttons)
+    open_session = await SessionService.get_open_session(CHAT_ID)
+    if open_session and open_session.pinned_message_id:
+        await MessageService.unpin_message_safe(bot, CHAT_ID, open_session.pinned_message_id)
+        await MessageService.delete_message_safe(bot, CHAT_ID, open_session.pinned_message_id)
+        await SessionService.update_pinned_message_id(open_session.id, None)
+        SessionService.invalidate_cache(CHAT_ID)
+
     text = (
         "Привет! Нажми кнопку под сообщением бота и выбери статус.\n"
         "Если фамилия еще не сохранена, бот попросит ее один раз."
@@ -59,7 +67,15 @@ async def cmd_status(message: Message, bot: Bot) -> None:
     old_message_id = MessageService.get_last_start_message(chat_id)
     if old_message_id:
         await MessageService.delete_message_safe(bot, chat_id, old_message_id)
-    
+
+    # Delete pinned notification message from scheduler (the "Бобры" message with buttons)
+    open_session = await SessionService.get_open_session(CHAT_ID)
+    if open_session and open_session.pinned_message_id:
+        await MessageService.unpin_message_safe(bot, CHAT_ID, open_session.pinned_message_id)
+        await MessageService.delete_message_safe(bot, CHAT_ID, open_session.pinned_message_id)
+        await SessionService.update_pinned_message_id(open_session.id, None)
+        SessionService.invalidate_cache(CHAT_ID)
+
     # Force refresh session from DB
     SessionService.invalidate_cache(CHAT_ID)
     session = await SessionService.get_or_create_session(CHAT_ID, force_refresh=True)

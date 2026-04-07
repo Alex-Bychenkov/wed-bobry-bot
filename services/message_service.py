@@ -101,10 +101,11 @@ class MessageService:
     async def update_summary(cls, bot: Bot, session: Session) -> None:
         """Update summary message with fresh data from DB."""
         from db import get_session_by_date
-        
-        # Reload session from DB to get current list_message_id
-        fresh_session = await get_session_by_date(session.chat_id, session.target_date)
-        if fresh_session and not fresh_session["is_closed"]:
-            session = Session.from_row(fresh_session)
-        
+
+        # Reload session from DB only if list_message_id is missing
+        if not session.list_message_id:
+            fresh_session = await get_session_by_date(session.chat_id, session.target_date)
+            if fresh_session and not fresh_session["is_closed"]:
+                session = Session.from_row(fresh_session)
+
         await cls.ensure_list_message(bot, session)

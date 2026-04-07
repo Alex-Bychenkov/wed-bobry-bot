@@ -7,7 +7,6 @@ networks:
 
 volumes:
   prometheus_data:
-  grafana_data:
 
 services:
   # Prometheus - metrics collection and storage
@@ -22,9 +21,9 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      # Уменьшен retention с 7d до 3d для экономии места и памяти
-      - '--storage.tsdb.retention.time=3d'
-      - '--storage.tsdb.retention.size=150MB'
+      # Уменьшен retention с 30d до 7d для экономии места и памяти
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=200MB'
       - '--web.enable-lifecycle'
       # Ограничение памяти для TSDB
       - '--storage.tsdb.max-block-duration=2h'
@@ -37,53 +36,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 150M
-        reservations:
           memory: 80M
-    mem_limit: 150m
-    memswap_limit: 200m
-
-  # Grafana - visualization dashboards
-  grafana:
-    image: grafana/grafana:10.1.0
-    container_name: grafana
-    restart: unless-stopped
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=http://87.247.157.122:3000
-      # Оптимизация памяти Grafana
-      - GF_RENDERING_CONCURRENT_RENDER_LIMIT=2
-      - GF_ALERTING_ENABLED=false
-      - GF_UNIFIED_ALERTING_ENABLED=false
-      - GF_EXPLORE_ENABLED=false
-      - GF_ANALYTICS_REPORTING_ENABLED=false
-      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
-      - GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
-      - GF_SNAPSHOTS_EXTERNAL_ENABLED=false
-      - GF_LOG_LEVEL=warn
-      # Оптимизация кэша
-      - GF_DATABASE_CACHE_MODE=shared
-    ports:
-      - "3000:3000"
-    networks:
-      - monitoring
-    depends_on:
-      - prometheus
-    # Ограничения ресурсов
-    deploy:
-      resources:
-        limits:
-          memory: 120M
         reservations:
-          memory: 70M
-    mem_limit: 120m
-    memswap_limit: 160m
+          memory: 40M
+    mem_limit: 80m
+    memswap_limit: 120m
 
   # Node Exporter - server metrics
   node-exporter:

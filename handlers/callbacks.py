@@ -71,14 +71,15 @@ async def status_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) 
     if session.is_closed:
         await callback.answer("Сессия закрыта.")
         return
-    
+
+    # Answer callback immediately so user sees reaction right away
+    await callback.answer()
+
     await SessionService.add_response(session.id, CHAT_ID, user_id, last_name, status, team)
     RESPONSES_TOTAL.labels(status=status.value).inc()
-    
+
     await MessageService.update_summary(bot, session)
     await update_player_metrics(session.id)
-    
-    await callback.answer()  # Silent answer
 
 
 @router.callback_query(F.data == "add_guest")

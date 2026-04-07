@@ -16,6 +16,7 @@ def _require_env(name: str) -> str:
 
 BOT_TOKEN = _require_env("BOT_TOKEN")
 CHAT_ID = int(_require_env("CHAT_ID"))
+PROXY_URL = os.getenv("PROXY_URL")  # e.g. socks5://user:pass@host:port
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow")
 if "TZ" not in os.environ:
     os.environ["TZ"] = TIMEZONE

@@ -3,11 +3,12 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramRetryAfter
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, PROXY_URL
 from db import init_db
 from handlers import router
 from metrics import set_bot_info, start_metrics_server
@@ -56,8 +57,9 @@ async def main() -> None:
         logging.error(f"Failed to initialize database: {e}", exc_info=True)
         raise
     
-    # Create bot instance
-    bot = Bot(token=BOT_TOKEN)
+    # Create bot instance with optional proxy
+    session = AiohttpSession(proxy=PROXY_URL) if PROXY_URL else None
+    bot = Bot(token=BOT_TOKEN, session=session)
     
     # Set bot info for metrics
     bot_info = await bot.get_me()

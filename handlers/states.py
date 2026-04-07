@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from config import CHAT_ID
-from handlers.keyboard import build_team_keyboard, build_goalie_status_keyboard
+from handlers.keyboard import build_team_keyboard, build_goalie_status_keyboard, build_guest_role_keyboard
 from metrics import CALLBACKS_TOTAL, GUESTS_ADDED_TOTAL, GUESTS_DELETED_TOTAL, PLAYERS_CURRENT, RESPONSES_TOTAL, TEAM_CHANGES_TOTAL, TEAM_SELECTIONS_TOTAL
 from middleware import track_duration
 from models import ResponseStatus
@@ -25,6 +25,7 @@ class LastNameState(StatesGroup):
     waiting_team = State()  # Для выбора команды после фамилии
     waiting_guest_last_name = State()
     waiting_guest_team = State()  # Для выбора команды гостя
+    waiting_guest_role = State()  # Для выбора роли гостя (игрок/вратарь)
     waiting_delete_last_name = State()
     waiting_change_team_last_name = State()  # Для изменения команды участника
     waiting_change_team_select = State()  # Для выбора новой команды
@@ -170,47 +171,75 @@ async def guest_last_name_handler(message: Message, state: FSMContext, bot: Bot)
 @router.callback_query(F.data.startswith("team:"), LastNameState.waiting_guest_team)
 @track_duration("guest_team_callback")
 async def guest_team_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    """Обработчик выбора команды для гостя."""
+    """Обработчик выбора команды для гостя — переход к выбору роли."""
     CALLBACKS_TOTAL.labels(action="guest_team_select").inc()
-    
+
     if callback.message.chat.id != CHAT_ID:
         await callback.answer("Этот бот работает в другой группе.")
         return
-    
+
     team = callback.data.split(":", 1)[1]
+    await state.update_data(guest_team=team)
+
+    # Удаляем сообщение с кнопками выбора команды
+    await MessageService.delete_message_safe(bot, callback.message.chat.id, callback.message.message_id)
+
+    # Переходим к выбору роли (игрок/вратарь)
+    await state.set_state(LastNameState.waiting_guest_role)
+    prompt_msg = await callback.message.answer("Выбери роль гостя:", reply_markup=build_guest_role_keyboard())
+    MessageService.schedule_delete(bot, prompt_msg.chat.id, prompt_msg.message_id, delay=15)
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("guest_role:"), LastNameState.waiting_guest_role)
+@track_duration("guest_role_callback")
+async def guest_role_callback(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    """Обработчик выбора роли гостя (игрок или вратарь)."""
+    CALLBACKS_TOTAL.labels(action="guest_role_select").inc()
+
+    if callback.message.chat.id != CHAT_ID:
+        await callback.answer("Этот бот работает в другой группе.")
+        return
+
+    role = callback.data.split(":", 1)[1]
+    is_goalie = role == "goalie"
+
     data = await state.get_data()
     guest_last_name = data.get("guest_last_name")
     session_id = data.get("session_id")
     added_by_user_id = data.get("added_by_user_id")
-    
-    if not guest_last_name or not session_id:
+    team = data.get("guest_team")
+
+    if not guest_last_name or not session_id or not team:
         await callback.answer("Произошла ошибка. Попробуй ещё раз.")
         await state.clear()
         return
-    
+
     # Создаём уникальный ID для гостя
     guest_user_id = -abs(hash(f"{guest_last_name}_{added_by_user_id}_{session_id}")) % 2147483647
-    
-    # Добавляем гостя в список со статусом YES и командой
-    await SessionService.add_response(session_id, CHAT_ID, guest_user_id, guest_last_name, ResponseStatus.YES, team)
+
+    # Добавляем гостя в список со статусом YES, командой и ролью
+    await SessionService.add_response(session_id, CHAT_ID, guest_user_id, guest_last_name, ResponseStatus.YES, team, is_goalie=is_goalie)
     RESPONSES_TOTAL.labels(status=ResponseStatus.YES.value).inc()
     GUESTS_ADDED_TOTAL.inc()
     TEAM_SELECTIONS_TOTAL.labels(team=team).inc()
-    
+
     session = await SessionService.get_or_create_session(CHAT_ID)
     await MessageService.update_summary(bot, session)
     await update_player_metrics(session_id)
-    
+
     await state.clear()
-    
-    # Удаляем сообщение с кнопками выбора команды
+
+    # Удаляем сообщение с кнопками выбора роли
     await MessageService.delete_message_safe(bot, callback.message.chat.id, callback.message.message_id)
-    
+
     # Отправляем подтверждение
     team_display = format_team_with_emoji(team)
-    confirm_msg = await callback.message.answer(f"✅ Гость '{guest_last_name}' ({team_display}) добавлен в список.")
+    role_label = "Вратарь" if is_goalie else "Гость"
+    confirm_msg = await callback.message.answer(f"✅ {role_label} '{guest_last_name}' ({team_display}) добавлен в список.")
     MessageService.schedule_delete(bot, confirm_msg.chat.id, confirm_msg.message_id, delay=3)
-    
+
     await callback.answer()
 
 

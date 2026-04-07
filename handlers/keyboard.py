@@ -30,6 +30,17 @@ def build_team_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def build_guest_role_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора роли гостя (игрок или вратарь)."""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="🏒 Игрок", callback_data="guest_role:player"),
+        InlineKeyboardButton(text="🥅 Вратарь", callback_data="guest_role:goalie"),
+    )
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def build_goalie_status_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для выбора статуса вратаря."""
     builder = InlineKeyboardBuilder()

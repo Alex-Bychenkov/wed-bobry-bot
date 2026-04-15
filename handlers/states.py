@@ -18,6 +18,8 @@ from utils import format_team_with_emoji
 
 router = Router()
 
+MAX_LAST_NAME_LENGTH = 30
+
 
 class LastNameState(StatesGroup):
     """FSM states for last name input."""
@@ -58,7 +60,12 @@ async def last_name_handler(message: Message, state: FSMContext, bot: Bot) -> No
         error_msg = await message.answer("Фамилия не может быть пустой. Попробуй еще раз.")
         MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
         return
-    
+
+    if len(last_name) > MAX_LAST_NAME_LENGTH:
+        error_msg = await message.answer(f"Фамилия слишком длинная (макс. {MAX_LAST_NAME_LENGTH} символов). Попробуй еще раз.")
+        MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
+        return
+
     data = await state.get_data()
     pending_status = data.get("pending_status")
     if not pending_status:
@@ -145,7 +152,12 @@ async def guest_last_name_handler(message: Message, state: FSMContext, bot: Bot)
         error_msg = await message.answer("Фамилия не может быть пустой. Попробуй еще раз.")
         MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
         return
-    
+
+    if len(guest_last_name) > MAX_LAST_NAME_LENGTH:
+        error_msg = await message.answer(f"Фамилия слишком длинная (макс. {MAX_LAST_NAME_LENGTH} символов). Попробуй еще раз.")
+        MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
+        return
+
     session = await SessionService.get_or_create_session(CHAT_ID)
     if session.is_closed:
         error_msg = await message.answer("Сессия закрыта.")
@@ -259,7 +271,13 @@ async def delete_last_name_handler(message: Message, state: FSMContext, bot: Bot
         error_msg = await message.answer("Фамилия не может быть пустой. Попробуй еще раз.")
         MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
         return
-    
+
+    if len(last_name_to_delete) > MAX_LAST_NAME_LENGTH:
+        error_msg = await message.answer(f"Фамилия слишком длинная (макс. {MAX_LAST_NAME_LENGTH} символов).")
+        MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
+        await state.clear()
+        return
+
     session = await SessionService.get_or_create_session(CHAT_ID)
     if session.is_closed:
         error_msg = await message.answer("Сессия закрыта.")
@@ -302,7 +320,13 @@ async def change_team_last_name_handler(message: Message, state: FSMContext, bot
         error_msg = await message.answer("Фамилия не может быть пустой. Попробуй еще раз.")
         MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
         return
-    
+
+    if len(last_name_to_change) > MAX_LAST_NAME_LENGTH:
+        error_msg = await message.answer(f"Фамилия слишком длинная (макс. {MAX_LAST_NAME_LENGTH} символов).")
+        MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
+        await state.clear()
+        return
+
     session = await SessionService.get_or_create_session(CHAT_ID)
     if session.is_closed:
         error_msg = await message.answer("Сессия закрыта.")
@@ -388,10 +412,15 @@ async def goalie_last_name_handler(message: Message, state: FSMContext, bot: Bot
         error_msg = await message.answer("Фамилия не может быть пустой. Попробуй еще раз.")
         MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
         return
-    
+
+    if len(last_name) > MAX_LAST_NAME_LENGTH:
+        error_msg = await message.answer(f"Фамилия слишком длинная (макс. {MAX_LAST_NAME_LENGTH} символов). Попробуй еще раз.")
+        MessageService.schedule_delete(bot, error_msg.chat.id, error_msg.message_id, delay=10)
+        return
+
     # Удаляем сообщение пользователя
     MessageService.schedule_delete(bot, message.chat.id, message.message_id, delay=3)
-    
+
     # Сохраняем фамилию и переходим к выбору команды
     await state.set_state(LastNameState.waiting_goalie_team)
     await state.update_data(last_name=last_name, is_goalie=True)

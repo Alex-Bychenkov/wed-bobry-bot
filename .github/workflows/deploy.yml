@@ -36,13 +36,13 @@ jobs:
             git reset --hard origin/main
             
             # Останавливаем и удаляем контейнеры (включая "осиротевшие")
-            docker-compose down --remove-orphans
+            docker compose down --remove-orphans
             
             # Принудительно удаляем контейнер, если остался
             docker rm -f wed-bobry-bot 2>/dev/null || true
             
             # Запускаем новый контейнер
-            docker-compose up -d --build
+            docker compose up -d --build
             
             # Обновляем конфигурацию мониторинга
             if [ -d monitoring ]; then
@@ -63,13 +63,13 @@ jobs:
               # Проверяем, нужна ли очистка метрик
               if [ "${{ github.event.inputs.clear_metrics }}" = "true" ]; then
                 echo "🗑️ Очистка всех накопленных метрик Prometheus..."
-                docker-compose -f docker-compose.monitoring.yml down
+                docker compose -f docker-compose.monitoring.yml down
                 docker volume rm monitoring_prometheus_data 2>/dev/null || true
-                docker-compose -f docker-compose.monitoring.yml up -d
+                docker compose -f docker-compose.monitoring.yml up -d
                 echo "✅ Метрики очищены, мониторинг перезапущен"
               else
                 echo "🔄 Перезапуск мониторинга..."
-                docker-compose -f docker-compose.monitoring.yml restart grafana prometheus
+                docker compose -f docker-compose.monitoring.yml restart grafana prometheus
                 echo "✅ Мониторинг перезапущен"
               fi
               
@@ -78,8 +78,8 @@ jobs:
             
             # Показываем статус
             echo "✅ Деплой завершён"
-            docker-compose ps
-            docker-compose -f /opt/monitoring/docker-compose.monitoring.yml ps 2>/dev/null || true
+            docker compose ps
+            docker compose -f /opt/monitoring/docker-compose.monitoring.yml ps 2>/dev/null || true
 
       - name: Deployment complete
         run: echo "✅ Бот успешно обновлён на сервере!"

@@ -24,22 +24,22 @@ jobs:
             cd /opt/monitoring
             
             # Останавливаем Prometheus
-            docker-compose -f docker-compose.monitoring.yml stop prometheus
+            docker compose -f docker-compose.monitoring.yml stop prometheus
             
             # Удаляем данные
             docker volume rm monitoring_prometheus_data 2>/dev/null || true
             
             # Запускаем Prometheus
-            docker-compose -f docker-compose.monitoring.yml up -d prometheus
+            docker compose -f docker-compose.monitoring.yml up -d prometheus
             
             # Ждём запуска
             sleep 10
             
             # Перезапускаем Grafana для переподключения
-            docker-compose -f docker-compose.monitoring.yml restart grafana
+            docker compose -f docker-compose.monitoring.yml restart grafana
             
             echo "✅ Очистка завершена"
-            docker-compose -f docker-compose.monitoring.yml ps
+            docker compose -f docker-compose.monitoring.yml ps
 
       - name: Cleanup complete
         run: echo "✅ Метрики Prometheus очищены"

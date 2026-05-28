@@ -1,11 +1,13 @@
 """Scheduler for periodic tasks (notifications, session closing)."""
 from __future__ import annotations
 
+import logging
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from aiogram import Bot
 
-from config import CHAT_ID, NOTIFY_TIME, TIMEZONE
+from config import CHAT_ID, NOTIFICATIONS_ENABLED, NOTIFY_TIME, TIMEZONE
 from handlers.keyboard import build_prompt_keyboard
 from metrics import SCHEDULER_JOBS_TOTAL
 from services.message_service import MessageService
@@ -76,8 +78,15 @@ async def close_current_session(bot: Bot) -> None:
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Set up and return the scheduler with all jobs."""
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+
+    if not NOTIFICATIONS_ENABLED:
+        logging.warning(
+            "NOTIFICATIONS_ENABLED=false — отпускной режим: оповещения и автозакрытие сессий отключены"
+        )
+        return scheduler
+
     notify_time = parse_notify_time(NOTIFY_TIME)
-    
+
     # Notifications on Wednesdays and Saturdays
     notify_trigger = CronTrigger(
         day_of_week="wed,sat",
@@ -85,9 +94,9 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         minute=notify_time.minute,
     )
     scheduler.add_job(send_daily_notification, notify_trigger, args=[bot])
-    
+
     # Close session on Wednesday at 23:30
     close_trigger = CronTrigger(day_of_week="wed", hour=23, minute=30)
     scheduler.add_job(close_current_session, close_trigger, args=[bot])
-    
+
     return scheduler

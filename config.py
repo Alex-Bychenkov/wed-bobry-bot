@@ -25,6 +25,7 @@ if "TZ" not in os.environ:
     except AttributeError:
         pass
 NOTIFY_TIME = os.getenv("NOTIFY_TIME", "11:00")
+NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 _admin_raw = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = {
     int(value)

@@ -19,3 +19,6 @@ data/
 # macOS
 ._*
 .DS_Store
+
+# Editors
+.vscode/

@@ -25,6 +25,9 @@ if "TZ" not in os.environ:
     except AttributeError:
         pass
 NOTIFY_TIME = os.getenv("NOTIFY_TIME", "11:00")
+# Время игры, выводится в заголовке списка: "с {GAME_TIME_START} по {GAME_TIME_END}"
+GAME_TIME_START = os.getenv("GAME_TIME_START", "20:45")
+GAME_TIME_END = os.getenv("GAME_TIME_END", "22:15")
 NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 _admin_raw = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = {

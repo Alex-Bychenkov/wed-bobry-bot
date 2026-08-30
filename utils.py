@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from config import GAME_TIME_END, GAME_TIME_START
+
 
 STATUS_YES = "YES"
 STATUS_MAYBE = "MAYBE"
@@ -35,7 +37,10 @@ def session_close_dt(target_date: date, tz_name: str) -> datetime:
 
 
 def format_summary_header(target_date: date) -> str:
-    return f"Среда бобры 🦫 {target_date.isoformat()} 20:30 ❗️❗️❗️❗️❗️❗️"
+    return (
+        f"Среда бобры 🦫 {target_date.isoformat()} "
+        f"с {GAME_TIME_START} по {GAME_TIME_END} ❗️❗️❗️❗️❗️❗️"
+    )
 
 
 TEAM_EMOJI = {
